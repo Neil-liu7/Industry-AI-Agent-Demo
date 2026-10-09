@@ -45,4 +45,10 @@ describe('synthetic cases and deterministic metrics', () => {
       risk_level: 'UNKNOWN',
     });
   });
+
+  it('allows shutdown cleanup to close a repository more than once', () => {
+    const temporary = new Repository(':memory:');
+    temporary.close();
+    expect(() => temporary.close()).not.toThrow();
+  });
 });

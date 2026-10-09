@@ -10,6 +10,7 @@ export function databasePath() {
 
 export class Repository {
   readonly db: DatabaseSync;
+  private closed = false;
 
   constructor(path = databasePath(), options: { readOnly?: boolean } = {}) {
     if (path !== ':memory:' && !options.readOnly) mkdirSync(join(path, '..'), { recursive: true });
@@ -98,7 +99,11 @@ export class Repository {
     return { items, next_cursor };
   }
 
-  close() { this.db.close(); }
+  close() {
+    if (this.closed) return;
+    this.db.close();
+    this.closed = true;
+  }
 }
 
 function zCases(raw: string) {
