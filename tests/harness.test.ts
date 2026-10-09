@@ -98,6 +98,8 @@ describe('industrial Pi harness', () => {
     expect(result.status).toBe('failed');
     expect(result.diagnosis).toBeNull();
     expect(result.trace.filter((item) => item.kind === 'tool')).toHaveLength(3);
+    expect(result.trace.some((item) => item.kind === 'step' &&
+      item.name === '核对确定性风险与证据' && item.status === 'failed')).toBe(true);
   });
 
   it('blocks cross-case tool arguments before execution', async () => {

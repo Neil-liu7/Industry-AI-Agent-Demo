@@ -267,11 +267,19 @@ export async function runDiagnosis(
     await withinDeadline(agent.prompt(input.question));
     if (stopReason) throw new Error(stopReason);
     if (agent.state.errorMessage) throw new Error('MODEL_ERROR');
-    if (!skill.required_tools.every((name) => called.has(name))) throw new Error('REQUIRED_TOOLS_MISSING');
+    if (!skill.required_tools.every((name) => called.has(name))) {
+      step('核对确定性风险与证据', 'failed', '必需工具结果缺失');
+      throw new Error('REQUIRED_TOOLS_MISSING');
+    }
     const final = [...agent.state.messages].reverse().find((message) => message.role === 'assistant');
     const answer = final?.role === 'assistant' ? final.content.filter((part) => part.type === 'text').map((part) => part.text).join('') : '';
     const requiredIds = skill.required_tools.map((name) => evidence.find((item) => item.tool === name)!.id);
-    result.diagnosis = validateDiagnosis(answer, metrics.risk_level, evidence.map((item) => item.id), requiredIds);
+    try {
+      result.diagnosis = validateDiagnosis(answer, metrics.risk_level, evidence.map((item) => item.id), requiredIds);
+    } catch (error) {
+      step('核对确定性风险与证据', 'failed', '模型结果与证据或风险规则不一致');
+      throw error;
+    }
     result.status = 'completed'; result.stop_reason = 'COMPLETED';
     step('核对确定性风险与证据', 'completed');
     step(skill.id === 'equipment-priority-patrol' ? '提出人工巡检建议' : '形成辅助诊断', 'completed');
