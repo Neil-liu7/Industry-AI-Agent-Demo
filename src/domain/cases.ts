@@ -24,6 +24,7 @@ export const caseSchema = z.object({
 
 export type IndustrialCase = z.infer<typeof caseSchema>;
 export type RiskLevel = 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
+export const RISK_THRESHOLDS = { output_drop_pct: 10, equipment_rise_pct: 20 } as const;
 
 export type CaseMetrics = {
   output_change_pct: number | null;
@@ -45,7 +46,7 @@ function defectRate(output: number | null, defects: number | null): number | nul
   return defects / output * 100;
 }
 
-export function calculateMetrics(data: IndustrialCase): CaseMetrics {
+export function calculateMetrics(data: Pick<IndustrialCase, 'baseline_date' | 'snapshot_date' | 'baseline' | 'current'>): CaseMetrics {
   if (data.baseline_date >= data.snapshot_date) {
     return {
       output_change_pct: null, baseline_defect_rate_pct: null, current_defect_rate_pct: null,
@@ -61,8 +62,10 @@ export function calculateMetrics(data: IndustrialCase): CaseMetrics {
   const complete = [output, baselineDefects, currentDefects, temperature, vibration].every((value) => value !== null);
   let risk: RiskLevel = 'UNKNOWN';
   if (complete) {
-    if (output! <= -10 && (temperature! >= 20 || vibration! >= 20)) risk = 'HIGH';
-    else if (output! <= -10 || temperature! >= 20 || vibration! >= 20) risk = 'MEDIUM';
+    if (output! <= -RISK_THRESHOLDS.output_drop_pct &&
+      (temperature! >= RISK_THRESHOLDS.equipment_rise_pct || vibration! >= RISK_THRESHOLDS.equipment_rise_pct)) risk = 'HIGH';
+    else if (output! <= -RISK_THRESHOLDS.output_drop_pct ||
+      temperature! >= RISK_THRESHOLDS.equipment_rise_pct || vibration! >= RISK_THRESHOLDS.equipment_rise_pct) risk = 'MEDIUM';
     else risk = 'LOW';
   }
   return {

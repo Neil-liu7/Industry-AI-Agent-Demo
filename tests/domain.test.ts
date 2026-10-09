@@ -28,6 +28,21 @@ describe('synthetic cases and deterministic metrics', () => {
     expect(calculateMetrics(repository.getCase('IND-003')!).risk_level).toBe('MEDIUM');
   });
 
+  it('applies the same threshold boundaries to temporary what-if values', () => {
+    const original = repository.getCase('IND-001')!;
+    const scenario = (daily_output_units: number, temperature_c: number, vibration_mm_s: number) =>
+      calculateMetrics({
+        baseline_date: original.baseline_date, snapshot_date: original.snapshot_date,
+        baseline: original.baseline,
+        current: { ...original.current, daily_output_units, temperature_c, vibration_mm_s },
+      }).risk_level;
+    expect(scenario(900, 84, 6)).toBe('HIGH');
+    expect(scenario(950, 84, 6)).toBe('MEDIUM');
+    expect(scenario(950, 75, 6)).toBe('LOW');
+    expect(scenario(0, 75, 6)).toBe('UNKNOWN');
+    expect(calculateMetrics(original).risk_level).toBe('HIGH');
+  });
+
   it('does not infer risk from missing data, zero baseline or invalid windows', () => {
     const base = repository.getCase('IND-001')!;
     for (const data of [

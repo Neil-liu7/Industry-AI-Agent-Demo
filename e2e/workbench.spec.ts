@@ -62,6 +62,24 @@ test('all three cases keep chart, diagnosis, evidence and report aligned', async
   }
 });
 
+test('what-if controls change only the temporary risk view', async ({ page }) => {
+  await page.goto('/');
+  const panel = page.locator('.scenario-panel');
+  await expect(panel).toContainText('原始风险 高风险');
+  await panel.getByRole('slider', { name: '假设日产量' }).press('End');
+  await panel.getByRole('slider', { name: '假设温度' }).press('Home');
+  await panel.getByRole('slider', { name: '假设振动' }).press('Home');
+  await expect(panel).toContainText('假设风险 低风险');
+  const snapshot = await (await page.request.get('/api/cases/IND-001/snapshot')).json();
+  expect(snapshot.current).toMatchObject({ daily_output_units: 850, temperature_c: 87.5, vibration_mm_s: 8.1 });
+  expect(snapshot.metrics.risk_level).toBe('HIGH');
+  await panel.getByRole('button', { name: '恢复原始值' }).click();
+  await expect(panel).toContainText('假设风险 高风险');
+  await page.locator('.case-list').getByRole('button', { name: /IND-003/ }).click();
+  await expect(panel).toContainText('原始风险 中风险');
+  await expect(panel).toContainText('假设风险 中风险');
+});
+
 test('a late snapshot cannot replace a newly selected case', async ({ page }) => {
   await page.route('**/api/cases/IND-001/snapshot', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 250));

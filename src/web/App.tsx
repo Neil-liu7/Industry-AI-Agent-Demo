@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { IndustrialCase, CaseMetrics, RiskLevel } from '../domain/cases';
+import { calculateMetrics, RISK_THRESHOLDS, type IndustrialCase, type CaseMetrics, type RiskLevel } from '../domain/cases';
 import type { RunResult, ToolTrace } from '../harness/run';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic'; risk_level: RiskLevel; line_id: string; equipment_id: string };
@@ -7,6 +7,7 @@ type Snapshot = Omit<IndustrialCase, 'maintenance_record'> & { metrics: CaseMetr
 type SkillSummary = { id: string; name: string; version: string; purpose: string };
 type Capabilities = { online_available: boolean; replay_available: boolean; skills: SkillSummary[]; limits: Record<string, number> };
 type SessionPage = { items: RunResult[]; next_cursor: string | null };
+type ScenarioValues = { daily_output_units: number; temperature_c: number; vibration_mm_s: number };
 
 async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, body === undefined ? { signal } : {
@@ -67,6 +68,7 @@ export function App() {
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [scenario, setScenario] = useState<{ case_id: string; values: ScenarioValues } | null>(null);
   const selectedCase = useRef(caseId);
   selectedCase.current = caseId;
 
@@ -78,7 +80,7 @@ export function App() {
   useEffect(() => {
     if (!caseId) return;
     setSession(null); setPlaying(false);
-    setSnapshot(null);
+    setSnapshot(null); setScenario(null);
     const controller = new AbortController();
     void api<Snapshot>(`/api/cases/${caseId}/snapshot`, undefined, controller.signal)
       .then(setSnapshot).catch((failure) => {
@@ -132,6 +134,23 @@ export function App() {
   const active = session?.mode === 'replay' ? session.trace.slice(0, frame + 1) : session?.trace ?? [];
   const showResult = session && (session.mode === 'online' || frame >= session.trace.length - 2);
   const selected = cases.find((item) => item.case_id === caseId);
+  const originalScenario = snapshot &&
+    snapshot.current.daily_output_units !== null &&
+    snapshot.current.temperature_c !== null &&
+    snapshot.current.vibration_mm_s !== null ? {
+      daily_output_units: snapshot.current.daily_output_units,
+      temperature_c: snapshot.current.temperature_c,
+      vibration_mm_s: snapshot.current.vibration_mm_s,
+    } : null;
+  const scenarioValues = scenario?.case_id === caseId ? scenario.values : originalScenario;
+  const scenarioMetrics = snapshot && scenarioValues ? calculateMetrics({
+    baseline_date: snapshot.baseline_date, snapshot_date: snapshot.snapshot_date,
+    baseline: snapshot.baseline, current: { ...snapshot.current, ...scenarioValues },
+  }) : null;
+  function changeScenario(field: keyof ScenarioValues, value: number) {
+    if (!scenarioValues || !Number.isFinite(value)) return;
+    setScenario({ case_id: caseId, values: { ...scenarioValues, [field]: value } });
+  }
   return <div className="app-shell">
     <header className="topbar"><div className="brand"><span className="brand-mark">π</span><div><b>INDUSTRIAL / PI</b><small>智能体辅助诊断工作台</small></div></div>
       <div className="topbar-right"><span className="live-dot"/> 单机演示环境 <span className="top-divider"/> <strong>合成数据 · 非生产系统</strong></div></header>
@@ -156,6 +175,23 @@ export function App() {
               <MetricCard label="振动" value={snapshot.current.vibration_mm_s} unit="mm/s" change={snapshot.metrics.vibration_change_pct} alert={(snapshot.metrics.vibration_change_pct ?? 0) >= 20}/>
             </div><Trend snapshot={snapshot}/><p className="fineprint">基线 {snapshot.baseline_date} → 当前 {snapshot.snapshot_date}。风险由后端规则计算，不能代表已确认故障。</p></>}
           </div>
+          {snapshot && scenarioValues && scenarioMetrics && <div className="panel scenario-panel"><div className="panel-title"><span className="eyebrow">02A / WHAT IF</span><h2>假设推演</h2></div>
+            <p className="fineprint">调整合成数据，观察风险规则的敏感性。仅在此页面计算，不修改原案例、诊断或历史。</p>
+            <div className="scenario-risk"><span>原始风险 <b className={`risk risk-${snapshot.metrics.risk_level.toLowerCase()}`}>{riskLabel[snapshot.metrics.risk_level]}</b></span>
+              <span aria-hidden="true">→</span><span>假设风险 <b className={`risk risk-${scenarioMetrics.risk_level.toLowerCase()}`}>{riskLabel[scenarioMetrics.risk_level]}</b></span></div>
+            <div className="scenario-controls">{([
+              { field: 'daily_output_units', label: '假设日产量', unit: '件', max: Math.max(1500, (snapshot.baseline.daily_output_units ?? 0) * 1.5), step: 10 },
+              { field: 'temperature_c', label: '假设温度', unit: '°C', max: Math.max(120, (snapshot.baseline.temperature_c ?? 0) * 1.5), step: 0.5 },
+              { field: 'vibration_mm_s', label: '假设振动', unit: 'mm/s', max: Math.max(12, (snapshot.baseline.vibration_mm_s ?? 0) * 2), step: 0.1 },
+            ] as const).map(({ field, label, unit, max, step }) => <label key={field}>{label}<strong>{scenarioValues[field]} {unit}</strong>
+              <input type="range" min="0" max={max} step={step} value={scenarioValues[field]}
+                onChange={(event) => changeScenario(field, Number(event.target.value))}/></label>)}</div>
+            <div className="scenario-rules"><span>产量 {format(scenarioMetrics.output_change_pct)}（≤ −{RISK_THRESHOLDS.output_drop_pct}%）</span>
+              <span>温度 {format(scenarioMetrics.temperature_change_pct)}（≥ +{RISK_THRESHOLDS.equipment_rise_pct}%）</span>
+              <span>振动 {format(scenarioMetrics.vibration_change_pct)}（≥ +{RISK_THRESHOLDS.equipment_rise_pct}%）</span></div>
+            <p className="fineprint">高风险：产量越阈且温度或振动越阈；单项越阈为中风险。数据无效时为未知。这是规则推演，不是故障预测。</p>
+            <button className="scenario-reset" onClick={() => setScenario(null)} disabled={!scenario || scenario.case_id !== caseId}>恢复原始值</button>
+          </div>}
         </section>
         <section className="right-column">
           <div className="panel action-panel"><div className="panel-title"><span className="eyebrow">03 / AGENT TASK</span><h2>发起辅助诊断</h2></div>
@@ -166,6 +202,7 @@ export function App() {
             <div className="buttons"><button className="primary" onClick={() => void run('replay')} disabled={busy || !caseId}>▶ 一键演示 · 离线回放</button>
               <button className="secondary" onClick={() => void run('online')} disabled={busy || !capabilities?.online_available || !question.trim()}>在线 Pi Agent 诊断</button></div>
             <p className="fineprint">{capabilities?.online_available ? '在线模式会等待真实模型与本地 MCP 工具返回。' : '在线模式需要在服务器本机配置模型 API Key；回放无需密钥或网络。'}</p>
+            <details className="config-help"><summary>如何配置模型 API</summary><p>在项目根目录复制 <code>.env.example</code> 为 <code>.env</code>，填写 <code>MODEL_PROVIDER</code>、<code>MODEL_NAME</code> 和对应的 <code>ANTHROPIC_API_KEY</code> 或 <code>OPENAI_API_KEY</code>，然后重启服务。密钥只放服务器本机，不在网页中输入。</p></details>
           </div>
           <div className="panel trace-panel"><div className="panel-title"><span className="eyebrow">04 / HARNESS TRACE</span><h2>执行轨迹</h2></div>
             {!session ? <div className="empty-state"><span>◎</span><b>等待开始演示</b><p>选择案例后点击一键演示，查看 Skill、工具与证据如何衔接。</p></div> : <>
