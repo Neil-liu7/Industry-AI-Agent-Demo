@@ -6,8 +6,10 @@ describe('synthetic cases and deterministic metrics', () => {
   const repository = new Repository(':memory:');
   repository.seed();
 
-  it('imports three distinct fixed cases', () => {
-    expect(repository.listCases().map((item) => item.case_id)).toEqual(['IND-001', 'IND-002', 'IND-003']);
+  it('imports five distinct fixed cases', () => {
+    expect(repository.listCases().map((item) => item.case_id)).toEqual([
+      'IND-001', 'IND-002', 'IND-003', 'IND-004', 'IND-005',
+    ]);
     expect(repository.getMaintenance('IND-001', 'EQ-003')?.record_id).toBe('MAINT-003');
     expect(repository.getMaintenance('IND-001', 'EQ-002')).toBeNull();
   });
@@ -23,9 +25,13 @@ describe('synthetic cases and deterministic metrics', () => {
     expect(metrics.risk_level).toBe('HIGH');
   });
 
-  it('classifies the control and single-metric anomaly', () => {
+  it('classifies normal, single-metric and incomplete-data cases', () => {
     expect(calculateMetrics(repository.getCase('IND-002')!).risk_level).toBe('LOW');
     expect(calculateMetrics(repository.getCase('IND-003')!).risk_level).toBe('MEDIUM');
+    expect(calculateMetrics(repository.getCase('IND-004')!).risk_level).toBe('UNKNOWN');
+    expect(calculateMetrics(repository.getCase('IND-004')!).temperature_change_pct).toBeNull();
+    expect(calculateMetrics(repository.getCase('IND-005')!).risk_level).toBe('MEDIUM');
+    expect(calculateMetrics(repository.getCase('IND-005')!).vibration_change_pct).toBeCloseTo(25);
   });
 
   it('applies the same threshold boundaries to temporary what-if values', () => {

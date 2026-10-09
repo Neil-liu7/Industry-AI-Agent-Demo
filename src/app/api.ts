@@ -20,11 +20,14 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
   app.disable('x-powered-by');
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/health', (_req, res) => res.json({ ok: true, data_type: 'synthetic' }));
-  app.get('/api/cases', (_req, res) => res.json(repository.listCases().map((data) => ({
-    case_id: data.case_id, title: data.title, snapshot_date: data.snapshot_date,
-    data_type: data.data_type, line_id: data.line_id, equipment_id: data.equipment_id,
-    risk_level: calculateMetrics(data).risk_level,
-  }))));
+  app.get('/api/cases', (_req, res) => res.json(repository.listCases().map((data) => {
+    const metrics = calculateMetrics(data);
+    return {
+      case_id: data.case_id, title: data.title, snapshot_date: data.snapshot_date,
+      data_type: data.data_type, line_id: data.line_id, equipment_id: data.equipment_id,
+      metrics, risk_level: metrics.risk_level,
+    };
+  })));
   app.get('/api/cases/:case_id/snapshot', (req, res) => {
     const data = repository.getCase(req.params.case_id);
     if (!data) return res.status(404).json({ error: 'Case not found' });

@@ -5,12 +5,14 @@ test('offline demo, playback controls, history and printable report', async ({ p
   await expect(page.getByRole('heading', { name: '产线异常辅助诊断' })).toBeVisible();
   await expect(page.getByText('在线模型未配置')).toBeVisible();
   await expect(page.getByRole('button', { name: '在线 Pi Agent 诊断' })).toBeDisabled();
-  await page.getByRole('button', { name: /IND-002/ }).click();
-  await expect(page.getByText('正常产线对照')).toBeVisible();
+  await page.locator('.case-list').getByRole('button', { name: /IND-002/ }).click();
+  await expect(page.locator('.case-list .case-item.selected')).toContainText('正常产线对照');
   await expect(page.getByText('快照 2026-09-22')).toBeVisible();
 
   await page.getByRole('button', { name: /一键演示/ }).click();
   await expect(page.getByText('离线预录回放').first()).toBeVisible();
+  await expect(page.locator('.trace-stats')).toContainText('实际模型调用 0');
+  await expect(page.locator('.trace-stats')).toContainText('实际工具调用 0');
   await page.getByRole('button', { name: '暂停' }).click();
   await page.getByRole('button', { name: '下一步' }).click();
   await expect(page.getByText('2 / 7')).toBeVisible();
@@ -19,6 +21,9 @@ test('offline demo, playback controls, history and printable report', async ({ p
   await page.getByRole('button', { name: '继续' }).click();
   await page.getByRole('button', { name: '暂停' }).click();
   for (let index = 0; index < 6; index++) await page.getByRole('button', { name: '下一步' }).click();
+  await page.locator('.trace-meta summary').first().click();
+  await expect(page.locator('.trace-meta').first()).toContainText('replay-get_line_snapshot');
+  await expect(page.locator('.trace-meta').first()).toContainText('预录，未现场计时');
   await expect(page.getByRole('heading', { name: '辅助诊断结果' })).toBeVisible();
   await expect(page.getByText('IND-002:maintenance:MAINT-002', { exact: true }).first()).toBeVisible();
   const reportLink = page.getByRole('link', { name: '打开可打印报告' });
@@ -35,12 +40,14 @@ test('offline demo, playback controls, history and printable report', async ({ p
   await expect(page.getByRole('heading', { name: '辅助诊断结果' })).toBeVisible();
 });
 
-test('all three cases keep chart, diagnosis, evidence and report aligned', async ({ page, context }) => {
+test('all five cases keep chart, diagnosis, evidence and report aligned', async ({ page, context }) => {
   await page.goto('/');
   for (const item of [
     { id: 'IND-001', line: 'LINE-03', output: 850, risk: 'HIGH', record: 'MAINT-003' },
     { id: 'IND-002', line: 'LINE-02', output: 1020, risk: 'LOW', record: 'MAINT-002' },
     { id: 'IND-003', line: 'LINE-01', output: 1000, risk: 'MEDIUM', record: 'MAINT-001' },
+    { id: 'IND-004', line: 'LINE-04', output: 900, risk: 'UNKNOWN', record: 'MAINT-004' },
+    { id: 'IND-005', line: 'LINE-05', output: 995, risk: 'MEDIUM', record: 'MAINT-005' },
   ]) {
     await page.locator('.case-list').getByRole('button', { name: new RegExp(item.id) }).click();
     await expect(page.locator('.case-meta')).toContainText(item.line);
@@ -60,6 +67,23 @@ test('all three cases keep chart, diagnosis, evidence and report aligned', async
     await report.close();
     await page.getByRole('button', { name: '退出回放' }).click();
   }
+});
+
+test('comparison board exposes an incomplete case without drawing a false trend', async ({ page }) => {
+  await page.goto('/');
+  const comparison = page.locator('.comparison-panel');
+  await expect(comparison.locator('tbody tr')).toHaveCount(5);
+  await expect(comparison.locator('tr').filter({ hasText: 'IND-004' })).toContainText('未知');
+  await comparison.getByRole('button', { name: '查看 IND-004' }).click();
+  await expect(page.locator('.case-meta')).toContainText('LINE-04');
+  await expect(page.getByRole('img', { name: '温度基线 70，当前 缺失' })).toBeVisible();
+  await expect(page.getByText('读数缺失，未绘制趋势')).toBeVisible();
+  await expect(page.locator('.scenario-panel')).toContainText('无法进行完整推演');
+  await page.getByRole('button', { name: /一键演示/ }).click();
+  await page.getByRole('button', { name: '暂停' }).click();
+  for (let index = 0; index < 6; index++) await page.getByRole('button', { name: '下一步' }).click();
+  await expect(page.getByText('关键温度读数缺失，当前无法完成风险分级')).toBeVisible();
+  await expect(page.locator('.result-panel')).toContainText('补采同期温度读数');
 });
 
 test('what-if controls change only the temporary risk view', async ({ page }) => {

@@ -6,7 +6,7 @@ import { Repository } from './storage/repository';
 
 if (existsSync('.env')) process.loadEnvFile('.env');
 const repository = new Repository();
-if (repository.listCases().length === 0) repository.seed();
+repository.seed();
 const app = createApp(repository);
 
 if (process.env.NODE_ENV === 'production') {

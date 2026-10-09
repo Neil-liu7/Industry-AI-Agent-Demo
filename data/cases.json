@@ -34,5 +34,29 @@
     "baseline": { "daily_output_units": 1000, "defect_units": 20, "temperature_c": 70, "vibration_mm_s": 6 },
     "current": { "daily_output_units": 1000, "defect_units": 20, "temperature_c": 86, "vibration_mm_s": 6 },
     "maintenance_record": { "record_id": "MAINT-001", "date": "2026-08-05", "summary": "温度传感器校准" }
+  },
+  {
+    "case_id": "IND-004",
+    "title": "关键温度读数缺失",
+    "snapshot_date": "2026-09-22",
+    "baseline_date": "2026-09-15",
+    "data_type": "synthetic",
+    "line_id": "LINE-04",
+    "equipment_id": "EQ-004",
+    "baseline": { "daily_output_units": 1000, "defect_units": 20, "temperature_c": 70, "vibration_mm_s": 6 },
+    "current": { "daily_output_units": 900, "defect_units": 25, "temperature_c": null, "vibration_mm_s": 6.3 },
+    "maintenance_record": { "record_id": "MAINT-004", "date": "2026-08-12", "summary": "例行巡检；当前温度传感器读数待复核" }
+  },
+  {
+    "case_id": "IND-005",
+    "title": "单指标振动异常",
+    "snapshot_date": "2026-09-22",
+    "baseline_date": "2026-09-15",
+    "data_type": "synthetic",
+    "line_id": "LINE-05",
+    "equipment_id": "EQ-005",
+    "baseline": { "daily_output_units": 1000, "defect_units": 20, "temperature_c": 70, "vibration_mm_s": 6 },
+    "current": { "daily_output_units": 995, "defect_units": 20, "temperature_c": 72, "vibration_mm_s": 7.5 },
+    "maintenance_record": { "record_id": "MAINT-005", "date": "2026-08-20", "summary": "例行润滑保养，未记录异常" }
   }
 ]

@@ -87,6 +87,30 @@ describe('industrial Pi harness', () => {
       .toContain('提出人工巡检建议');
   });
 
+  it('abstains on missing data and rejects fault hypotheses for an unknown risk', async () => {
+    const calls = [
+      call('1', 'get_line_snapshot', { case_id: 'IND-004', line_id: 'LINE-04' }),
+      call('2', 'get_equipment_snapshot', { case_id: 'IND-004', equipment_id: 'EQ-004' }),
+      call('3', 'get_maintenance_history', { case_id: 'IND-004', equipment_id: 'EQ-004' }),
+    ];
+    const answer = { summary: '温度读数缺失，需先人工复核数据。', risk_level: 'UNKNOWN',
+      evidence_ids: ['IND-004:line:2026-09-22', 'IND-004:equipment:2026-09-22', 'IND-004:maintenance:MAINT-004'],
+      hypotheses: [], recommended_checks: ['人工补采温度读数'], limitations: ['合成数据，无法完成风险分级'] };
+    const run = (hypotheses: string[]) => runDiagnosis(repository,
+      { case_id: 'IND-004', question: '请分析数据不足的案例' }, {
+        model: fakeModel, streamFn: scriptedStream([fakeMessage(calls, 'toolUse'),
+          fakeMessage([{ type: 'text', text: JSON.stringify({ ...answer, hypotheses }) }], 'stop')]),
+      });
+    const valid = await run([]);
+    expect(valid.status).toBe('completed');
+    expect(valid.metrics.risk_level).toBe('UNKNOWN');
+    expect(valid.diagnosis?.hypotheses).toEqual([]);
+    const unsafe = await run(['轴承故障待核查']);
+    expect(unsafe.status).toBe('failed');
+    expect(unsafe.diagnosis).toBeNull();
+    expect(unsafe.evidence).toHaveLength(3);
+  });
+
   it.each([
     ['forged evidence', { evidence_ids: [...ids, 'FAKE-999'] }],
     ['wrong risk', { risk_level: 'LOW' }],

@@ -35,9 +35,13 @@ describe('diagnosis API, replay and durable history', () => {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
 
-  it('exposes three consistent cases and reports online unavailability without a key', async () => {
+  it('exposes five consistent cases and reports online unavailability without a key', async () => {
     const cases = await (await fetch(base + '/api/cases')).json();
-    expect(cases.map((item: { case_id: string }) => item.case_id)).toEqual(['IND-001', 'IND-002', 'IND-003']);
+    expect(cases.map((item: { case_id: string }) => item.case_id)).toEqual([
+      'IND-001', 'IND-002', 'IND-003', 'IND-004', 'IND-005',
+    ]);
+    expect(cases.find((item: { case_id: string }) => item.case_id === 'IND-004').metrics)
+      .toMatchObject({ temperature_change_pct: null, risk_level: 'UNKNOWN' });
     const snapshot = await (await fetch(base + '/api/cases/IND-003/snapshot')).json();
     expect(snapshot.metrics.risk_level).toBe('MEDIUM');
     expect(snapshot).not.toHaveProperty('maintenance_record');
@@ -47,7 +51,10 @@ describe('diagnosis API, replay and durable history', () => {
   });
 
   it('replays each case without model or MCP calls and persists filtered history', async () => {
-    for (const [caseId, risk] of [['IND-001', 'HIGH'], ['IND-002', 'LOW'], ['IND-003', 'MEDIUM']]) {
+    for (const [caseId, risk] of [
+      ['IND-001', 'HIGH'], ['IND-002', 'LOW'], ['IND-003', 'MEDIUM'],
+      ['IND-004', 'UNKNOWN'], ['IND-005', 'MEDIUM'],
+    ]) {
       const response = await post('/api/replay', { case_id: caseId });
       expect(response.status).toBe(200);
       const session = await response.json();
@@ -68,6 +75,7 @@ describe('diagnosis API, replay and durable history', () => {
       expect(report).toContain(caseId);
       expect(report).toContain('离线预录回放');
       expect(report).toContain('合成数据');
+      if (caseId === 'IND-004') expect(report).toContain('风险等级未判定');
     }
     const first = await (await fetch(base + '/api/sessions?mode=replay&limit=1')).json();
     expect(first.items).toHaveLength(1);
@@ -77,8 +85,13 @@ describe('diagnosis API, replay and durable history', () => {
     expect(second.items[0].id).not.toBe(first.items[0].id);
     const filtered = await (await fetch(base + '/api/sessions?case_id=IND-002')).json();
     expect(filtered.items.map((item: { case_id: string }) => item.case_id)).toEqual(['IND-002']);
+    repository.db.prepare('INSERT INTO cases VALUES (?, ?)').run('IND-999', JSON.stringify({
+      ...repository.getCase('IND-001'), case_id: 'IND-999',
+    }));
+    repository.seed();
+    expect(repository.listCases().map((item) => item.case_id)).not.toContain('IND-999');
     const reopened = new Repository(path);
-    expect(reopened.listSessions({}).items).toHaveLength(3);
+    expect(reopened.listSessions({}).items).toHaveLength(5);
     reopened.close();
   });
 

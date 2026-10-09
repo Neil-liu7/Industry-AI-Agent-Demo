@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { calculateMetrics, RISK_THRESHOLDS, type IndustrialCase, type CaseMetrics, type RiskLevel } from '../domain/cases';
 import type { RunResult, ToolTrace } from '../harness/run';
 
-type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic'; risk_level: RiskLevel; line_id: string; equipment_id: string };
+type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic';
+  risk_level: RiskLevel; line_id: string; equipment_id: string; metrics: CaseMetrics };
 type Snapshot = Omit<IndustrialCase, 'maintenance_record'> & { metrics: CaseMetrics };
 type SkillSummary = { id: string; name: string; version: string; purpose: string };
 type Capabilities = { online_available: boolean; replay_available: boolean; skills: SkillSummary[]; limits: Record<string, number> };
@@ -40,13 +41,15 @@ function Trend({ snapshot }: { snapshot: Snapshot }) {
   ] as const;
   return <div className="trend-grid">{entries.map(([label, baseline, current, unit]) => {
     const top = Math.max(baseline ?? 0, current ?? 0, 1) * 1.2;
-    const y = (value: number | null) => 72 - (value ?? 0) / top * 54;
+    const y = (value: number) => 72 - value / top * 54;
     return <div className="trend" key={label}>
       <div className="trend-head"><span>{label}</span><b>{current ?? '—'} <small>{unit}</small></b></div>
-      <svg viewBox="0 0 180 86" role="img" aria-label={`${label}基线 ${baseline}，当前 ${current}`}>
+      <svg viewBox="0 0 180 86" role="img" aria-label={`${label}基线 ${baseline ?? '缺失'}，当前 ${current ?? '缺失'}`}>
         <line x1="15" x2="165" y1="72" y2="72" stroke="#294956"/>
-        <line x1="38" x2="142" y1={y(baseline)} y2={y(current)} stroke="#3fc6ad" strokeWidth="3"/>
-        <circle cx="38" cy={y(baseline)} r="5" fill="#92aaad"/><circle cx="142" cy={y(current)} r="6" fill="#44d8bb"/>
+        {baseline !== null && current !== null ? <>
+          <line x1="38" x2="142" y1={y(baseline)} y2={y(current)} stroke="#3fc6ad" strokeWidth="3"/>
+          <circle cx="38" cy={y(baseline)} r="5" fill="#92aaad"/><circle cx="142" cy={y(current)} r="6" fill="#44d8bb"/>
+        </> : <text x="43" y="43">读数缺失，未绘制趋势</text>}
         <text x="20" y="84">基线</text><text x="125" y="84">当前</text>
       </svg>
     </div>;
@@ -192,6 +195,8 @@ export function App() {
             <p className="fineprint">高风险：产量越阈且温度或振动越阈；单项越阈为中风险。数据无效时为未知。这是规则推演，不是故障预测。</p>
             <button className="scenario-reset" onClick={() => setScenario(null)} disabled={!scenario || scenario.case_id !== caseId}>恢复原始值</button>
           </div>}
+          {snapshot && !scenarioValues && <div className="panel scenario-panel"><div className="panel-title"><span className="eyebrow">02A / WHAT IF</span><h2>假设推演</h2></div>
+            <p className="fineprint">当前案例缺少关键读数，无法进行完整推演。请先人工复核数据。</p></div>}
         </section>
         <section className="right-column">
           <div className="panel action-panel"><div className="panel-title"><span className="eyebrow">03 / AGENT TASK</span><h2>发起辅助诊断</h2></div>
@@ -208,6 +213,10 @@ export function App() {
             {!session ? <div className="empty-state"><span>◎</span><b>等待开始演示</b><p>选择案例后点击一键演示，查看 Skill、工具与证据如何衔接。</p></div> : <>
               <div className="session-header"><span className={`mode-tag ${session.mode}`}>{session.mode === 'replay' ? '离线预录回放' : '在线真实执行'}</span>
                 <span className={`risk risk-${session.metrics.risk_level.toLowerCase()}`}>{riskLabel[session.metrics.risk_level]}</span><span>{session.skill.name} v{session.skill.version}</span></div>
+              <div className="trace-stats"><span>{session.mode === 'replay' ? `实际模型调用 ${session.model_calls}` : `模型调用 ${session.model_calls}/${capabilities?.limits.model_calls ?? 4}`}</span>
+                <span>{session.mode === 'replay' ? `实际工具调用 ${session.tool_calls}` : `工具调用 ${session.tool_calls}/${capabilities?.limits.tool_calls ?? 6}`}</span>
+                <span>{session.mode === 'replay' ? 'Token 不适用' : session.token_usage === null ? 'Token 用量未知' : `Token 用量 ${session.token_usage}`}</span>
+                <span>停止原因 {session.stop_reason}</span></div>
               {session.mode === 'replay' && <div className="playback"><button aria-label="上一步" onClick={() => { setPlaying(false); setFrame((value) => Math.max(0, value - 1)); }}>← 上一步</button>
                 <button aria-label={playing ? '暂停' : '继续'} onClick={() => setPlaying(!playing)}>{playing ? 'Ⅱ 暂停' : '▶ 继续'}</button>
                 <button aria-label="下一步" onClick={() => { setPlaying(false); setFrame((value) => Math.min(session.trace.length - 1, value + 1)); }}>下一步 →</button>
@@ -215,12 +224,26 @@ export function App() {
               <ol className="trace-list">{active.map((item, index) => <li key={index}><span className="trace-number">{String(index + 1).padStart(2, '0')}</span>
                 <div><b>{item.kind === 'tool' ? toolLabel[item.name] ?? item.name : item.name}</b>
                   <small>{item.kind === 'tool' ? `${item.replayed ? '预录轨迹' : '真实调用'} · ${item.source.toUpperCase()} · ${item.status}` : item.detail ?? item.status}</small>
-                  {item.kind === 'tool' && item.evidence_id && <code>{item.evidence_id}</code>}</div></li>)}</ol>
+                  {item.kind === 'tool' && <><code>{item.evidence_id ?? '未返回证据 ID'}</code><details className="trace-meta"><summary>查看调用记录</summary>
+                    <dl><dt>调用 ID</dt><dd>{item.tool_call_id}</dd><dt>参数范围</dt><dd><code>{JSON.stringify(item.args)}</code></dd>
+                      <dt>耗时</dt><dd>{item.replayed ? '预录，未现场计时' : item.duration_ms === undefined ? '未知' : `${item.duration_ms} ms`}</dd>
+                      <dt>重试</dt><dd>{item.retry_count} 次</dd><dt>预算计数</dt><dd>模型 {item.budget.model_calls} · 工具 {item.budget.tool_calls}</dd>
+                      <dt>结果</dt><dd>{item.result_summary ?? item.status}</dd></dl></details></>}</div></li>)}</ol>
               {session.status === 'failed' && <div className="error-banner">安全终止：{session.stop_reason}</div>}
             </>}
           </div>
         </section>
       </div>
+      <section className="panel comparison-panel"><div className="panel-title"><span className="eyebrow">04A / CASE COMPARISON</span><h2>跨案例对照</h2></div>
+        <p className="fineprint">同一组确定性规则覆盖复合异常、正常对照、单指标异常和数据不足。表中变化均相对各案例基线，点击案例可切换工作台。</p>
+        <div className="comparison-scroll"><table><thead><tr><th>案例</th><th>产量变化</th><th>温度偏移</th><th>振动偏移</th><th>风险</th></tr></thead>
+          <tbody>{cases.map((item) => <tr key={item.case_id} className={item.case_id === caseId ? 'selected' : ''}>
+            <td><button onClick={() => setCaseId(item.case_id)} disabled={busy} aria-label={`查看 ${item.case_id}`}><b>{item.case_id}</b><small>{item.title}</small></button></td>
+            <td>{format(item.metrics.output_change_pct)}</td><td>{format(item.metrics.temperature_change_pct)}</td>
+            <td>{format(item.metrics.vibration_change_pct)}</td><td><span className={`risk risk-${item.risk_level.toLowerCase()}`}>{riskLabel[item.risk_level]}</span></td>
+          </tr>)}</tbody></table></div>
+        <p className="fineprint">“未知”表示关键值或比较条件不足，应补采数据；不将其解释为低风险。</p>
+      </section>
       {showResult && session && <section className="panel result-panel"><div className="panel-title"><span className="eyebrow">05 / EVIDENCE & DECISION</span><h2>辅助诊断结果</h2></div>
         <div className="result-grid"><div><span className="eyebrow">结论</span><p className="summary">{session.diagnosis?.summary ?? '诊断未通过校验，请检查轨迹与停止原因。'}</p>
           <h3>待核查假设</h3><ul>{session.diagnosis?.hypotheses.map((item) => <li key={item}>{item}</li>)}</ul>

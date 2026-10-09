@@ -15,6 +15,9 @@ export type Diagnosis = z.infer<typeof diagnosisSchema>;
 export function validateDiagnosis(text: string, risk: RiskLevel, availableIds: string[], requiredIds: string[]): Diagnosis {
   const diagnosis = diagnosisSchema.parse(JSON.parse(text));
   if (diagnosis.risk_level !== risk) throw new Error('Model risk differs from deterministic rule');
+  if (risk === 'UNKNOWN' && (diagnosis.hypotheses.length > 0 || diagnosis.recommended_checks.length === 0)) {
+    throw new Error('Incomplete data requires abstention and a human data check');
+  }
   if (new Set(diagnosis.evidence_ids).size !== diagnosis.evidence_ids.length ||
     !diagnosis.evidence_ids.every((id) => availableIds.includes(id)) ||
     !requiredIds.every((id) => diagnosis.evidence_ids.includes(id))) {

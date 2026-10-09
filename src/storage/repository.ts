@@ -35,6 +35,7 @@ export class Repository {
     const insertMaintenance = this.db.prepare('INSERT OR REPLACE INTO maintenance_records VALUES (?, ?, ?, ?, ?)');
     this.db.exec('BEGIN');
     try {
+      this.db.exec('DELETE FROM cases; DELETE FROM maintenance_records;');
       for (const data of cases) {
         insertCase.run(data.case_id, JSON.stringify(data));
         insertMaintenance.run(data.case_id, data.equipment_id, data.maintenance_record.record_id,
