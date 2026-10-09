@@ -9,13 +9,17 @@ import { validateDiagnosis, type Diagnosis } from './diagnosis';
 
 type ToolName = Skill['allowed_tools'][number];
 type Source = 'local' | 'mcp';
-export type ToolTrace = {
+type TraceContext = {
+  run_id: string; skill_id: string; skill_version: string;
+  budget: { model_calls: number; tool_calls: number }; stop_reason?: string;
+};
+export type ToolTrace = TraceContext & {
   kind: 'tool'; tool_call_id: string; name: string; source: Source | 'unknown';
   status: 'running' | 'completed' | 'failed'; started_at: string; ended_at?: string; replayed?: boolean;
   duration_ms?: number; args: Record<string, unknown>; result_summary?: string;
   evidence_id?: string; retry_count: number;
 };
-export type StepTrace = { kind: 'step'; name: string; status: 'completed' | 'failed'; at: string; detail?: string };
+export type StepTrace = TraceContext & { kind: 'step'; name: string; status: 'completed' | 'failed'; at: string; detail?: string };
 export type Trace = ToolTrace | StepTrace;
 export type Evidence = { id: string; source: Source; tool: ToolName; data: Record<string, unknown> };
 export type RunResult = {
@@ -49,6 +53,14 @@ function sourceOf(name: string): Source | 'unknown' {
   return 'unknown';
 }
 
+function summarizeArgs(args: unknown): Record<string, unknown> {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return {};
+  const value = args as Record<string, unknown>;
+  return Object.fromEntries(['case_id', 'line_id', 'equipment_id']
+    .filter((key) => typeof value[key] === 'string')
+    .map((key) => [key, String(value[key]).slice(0, 64)]));
+}
+
 function rejectionReason(question: string): string | null {
   if (/启动|停止|关闭|写入|修改设定|控制设备|提交工单|创建工单|运行脚本|任意代码|执行命令|shell|bash|PLC|SCADA|MES/i.test(question)) {
     return '设备控制、写入或任意命令请求不在只读演示范围';
@@ -76,12 +88,16 @@ export async function runDiagnosis(
     metrics, diagnosis: null, evidence, trace, stop_reason: 'UNKNOWN', model_calls: 0, tool_calls: 0,
     token_usage: null,
   };
+  const traceContext = (): TraceContext => ({ run_id: result.id, skill_id: skill.id, skill_version: skill.version,
+    budget: { model_calls: result.model_calls, tool_calls: result.tool_calls } });
   const step = (name: string, status: StepTrace['status'], detail?: string) =>
-    trace.push({ kind: 'step', name, status, at: new Date().toISOString(), detail });
+    trace.push({ ...traceContext(), kind: 'step', name, status, at: new Date().toISOString(), detail });
+  const finalizeTrace = () => { for (const item of trace) item.stop_reason = result.stop_reason; };
   const rejected = rejectionReason(input.question);
   if (rejected) {
     step('输入策略', 'failed', rejected);
     result.stop_reason = 'POLICY_BLOCKED';
+    finalizeTrace();
     return result;
   }
   step('输入策略', 'completed');
@@ -91,6 +107,12 @@ export async function runDiagnosis(
   let ownsClient = false;
   let stopReason: string | null = null;
   const retries = new Map<string, number>();
+  const completedSkillSteps = new Set<string>();
+  const stepForTool: Record<ToolName, string> = {
+    get_line_snapshot: '读取产线快照',
+    get_equipment_snapshot: '读取设备快照',
+    get_maintenance_history: '读取维修记录',
+  };
   const addEvidence = (name: ToolName, source: Source, id: string, payload: Record<string, unknown>) => {
     evidence.push({ id, source, tool: name, data: payload });
     called.add(name);
@@ -201,9 +223,9 @@ export async function runDiagnosis(
     });
     agent.subscribe((event: AgentEvent) => {
       if (event.type === 'tool_execution_start') {
-        trace.push({ kind: 'tool', tool_call_id: event.toolCallId, name: event.toolName,
+        trace.push({ ...traceContext(), kind: 'tool', tool_call_id: event.toolCallId, name: event.toolName,
           source: sourceOf(event.toolName), status: 'running', started_at: new Date().toISOString(),
-          args: { ...event.args }, retry_count: 0 });
+          args: summarizeArgs(event.args), retry_count: 0 });
       } else if (event.type === 'tool_execution_end') {
         const item = trace.findLast((entry): entry is ToolTrace => entry.kind === 'tool' && entry.tool_call_id === event.toolCallId);
         if (item) {
@@ -212,6 +234,12 @@ export async function runDiagnosis(
           item.result_summary = event.isError ? 'Tool failed or was blocked' : String(event.result?.details?.summary ?? 'Read completed');
           item.evidence_id = event.result?.details?.evidence_id;
           item.retry_count = retries.get(event.toolCallId) ?? 0;
+          item.budget = traceContext().budget;
+        }
+        const skillStep = stepForTool[event.toolName as ToolName];
+        if (skillStep && skill.steps.includes(skillStep) && !completedSkillSteps.has(skillStep)) {
+          step(skillStep, event.isError ? 'failed' : 'completed');
+          completedSkillSteps.add(skillStep);
         }
         if (event.isError && !stopReason) stopReason = event.toolName in definitions ? 'TOOL_ERROR' : 'UNKNOWN_TOOL';
       } else if (event.type === 'turn_end' && event.message.role === 'assistant') {
@@ -229,6 +257,8 @@ export async function runDiagnosis(
     const requiredIds = skill.required_tools.map((name) => evidence.find((item) => item.tool === name)!.id);
     result.diagnosis = validateDiagnosis(answer, metrics.risk_level, evidence.map((item) => item.id), requiredIds);
     result.status = 'completed'; result.stop_reason = 'COMPLETED';
+    step('核对确定性风险与证据', 'completed');
+    step(skill.id === 'equipment-priority-patrol' ? '提出人工巡检建议' : '形成辅助诊断', 'completed');
     step('结果与证据校验', 'completed');
   } catch (error) {
     result.stop_reason = stopReason ?? (error instanceof Error ? error.message : 'UNKNOWN_ERROR');
@@ -236,5 +266,6 @@ export async function runDiagnosis(
   } finally {
     if (ownsClient) await client?.close();
   }
+  finalizeTrace();
   return result;
 }

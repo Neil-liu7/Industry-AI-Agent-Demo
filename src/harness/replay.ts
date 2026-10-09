@@ -24,25 +24,28 @@ export function createReplay(repository: Repository, caseId: string, question = 
   }));
   const diagnosis = validateDiagnosis(JSON.stringify(recordings[caseId]), metrics.risk_level,
     evidence.map((item) => item.id), evidence.map((item) => item.id));
+  const id = randomUUID();
   const now = new Date().toISOString();
+  const traceContext = { run_id: id, skill_id: skill.id, skill_version: skill.version,
+    budget: { model_calls: 0, tool_calls: 0 }, stop_reason: 'REPLAY_COMPLETED' };
   const trace: Trace[] = [
-    { kind: 'step', name: '案例概览（预录回放）', status: 'completed', at: now,
+    { ...traceContext, kind: 'step', name: '案例概览（预录回放）', status: 'completed', at: now,
       detail: `${data.case_id} · ${data.snapshot_date} · 合成数据` },
-    { kind: 'step', name: 'Skill 与 Harness（预录回放）', status: 'completed', at: now,
+    { ...traceContext, kind: 'step', name: 'Skill 与 Harness（预录回放）', status: 'completed', at: now,
       detail: `${skill.name} ${skill.version} · 只读工具与证据校验` },
   ];
   for (const item of evidence) {
-    const tool: ToolTrace = { kind: 'tool', tool_call_id: `replay-${item.tool}`, name: item.tool,
+    const tool: ToolTrace = { ...traceContext, kind: 'tool', tool_call_id: `replay-${item.tool}`, name: item.tool,
       source: item.source, status: 'completed', replayed: true, started_at: now, ended_at: now,
       duration_ms: 0, args: { case_id: caseId }, result_summary: '预录工具结果，未现场执行',
       evidence_id: item.id, retry_count: 0 };
     trace.push(tool);
   }
-  trace.push({ kind: 'step', name: '诊断证据（预录回放）', status: 'completed', at: now,
+  trace.push({ ...traceContext, kind: 'step', name: '诊断证据（预录回放）', status: 'completed', at: now,
     detail: diagnosis.evidence_ids.join(', ') });
-  trace.push({ kind: 'step', name: '报告（预录回放）', status: 'completed', at: now });
+  trace.push({ ...traceContext, kind: 'step', name: '报告（预录回放）', status: 'completed', at: now });
   return {
-    id: randomUUID(), case_id: caseId, mode: 'replay', status: 'completed', created_at: now,
+    id, case_id: caseId, mode: 'replay', status: 'completed', created_at: now,
     question, snapshot_date: data.snapshot_date, data_type: 'synthetic',
     skill: { id: skill.id, version: skill.version, name: skill.name }, metrics, diagnosis,
     evidence, trace, stop_reason: 'REPLAY_COMPLETED', model_calls: 0, tool_calls: 0, token_usage: null,

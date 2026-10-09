@@ -52,6 +52,14 @@ describe('industrial Pi harness', () => {
     expect(result.evidence.map((item) => item.id)).toEqual(ids);
     expect(result.model_calls).toBe(2);
     expect(result.tool_calls).toBe(3);
+    expect(result.trace.every((item) => item.run_id === result.id &&
+      item.skill_id === result.skill.id && item.skill_version === result.skill.version &&
+      item.stop_reason === 'COMPLETED')).toBe(true);
+    expect(result.trace.filter((item) => item.kind === 'step').map((item) => item.name))
+      .toEqual(expect.arrayContaining(['读取产线快照', '读取设备快照', '读取维修记录',
+        '核对确定性风险与证据', '形成辅助诊断']));
+    expect(result.trace.filter((item) => item.kind === 'tool').at(-1)?.budget)
+      .toEqual({ model_calls: 1, tool_calls: 3 });
   });
 
   it('runs the explicitly selected patrol skill with an omitted equipment ID', async () => {
@@ -72,6 +80,8 @@ describe('industrial Pi harness', () => {
     expect(result.skill.id).toBe('equipment-priority-patrol');
     expect(result.evidence.map((item) => item.id)).toEqual(patrolIds);
     expect(result.tool_calls).toBe(2);
+    expect(result.trace.filter((item) => item.kind === 'step').map((item) => item.name))
+      .toContain('提出人工巡检建议');
   });
 
   it.each([
@@ -103,11 +113,12 @@ describe('industrial Pi harness', () => {
   it('stops on an unknown tool without inventing a successful call', async () => {
     const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
       model: fakeModel,
-      streamFn: scriptedStream([fakeMessage([call('1', 'delete_record', { case_id: 'IND-001' })], 'toolUse')]),
+      streamFn: scriptedStream([fakeMessage([call('1', 'delete_record', { case_id: 'IND-001', secret: 'do-not-log' })], 'toolUse')]),
     });
     expect(result.status).toBe('failed');
     expect(result.evidence).toHaveLength(0);
     expect(result.stop_reason).toBe('UNKNOWN_TOOL');
+    expect(JSON.stringify(result.trace)).not.toContain('do-not-log');
   });
 
   it('enforces the six-tool budget', async () => {
