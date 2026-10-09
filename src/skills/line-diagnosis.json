@@ -1,0 +1,11 @@
+{
+  "id": "line-anomaly-diagnosis",
+  "version": "1.0.0",
+  "name": "产线异常诊断",
+  "purpose": "综合产线、设备与维修记录，形成只读辅助诊断。",
+  "when": "产量、质量或设备指标异常的问题",
+  "steps": ["读取产线快照", "读取设备快照", "读取维修记录", "核对确定性风险与证据", "形成辅助诊断"],
+  "allowed_tools": ["get_line_snapshot", "get_equipment_snapshot", "get_maintenance_history"],
+  "required_tools": ["get_line_snapshot", "get_equipment_snapshot", "get_maintenance_history"],
+  "failure_policy": "保留轨迹并安全终止，不补造证据"
+}
