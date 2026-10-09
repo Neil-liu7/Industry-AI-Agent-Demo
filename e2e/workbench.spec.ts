@@ -20,7 +20,7 @@ test('offline demo, playback controls, history and printable report', async ({ p
   await expect(page.getByText('2 / 7')).toBeVisible();
   await page.getByRole('button', { name: '上一步' }).click();
   await expect(page.getByText('1 / 7')).toBeVisible();
-  await page.getByRole('button', { name: '继续' }).click();
+  await page.getByRole('button', { name: '继续', exact: true }).click();
   await page.getByRole('button', { name: '暂停' }).click();
   for (let index = 0; index < 6; index++) await page.getByRole('button', { name: '下一步' }).click();
   await page.locator('.trace-meta summary').first().click();
@@ -210,4 +210,24 @@ test('a validated diagnosis can move through a persisted human inspection checkl
   await card.getByRole('button', { name: '完成工单' }).click();
   await expect(card).toContainText('已完成');
   await expect(card.locator('input[type="checkbox"]:checked')).toHaveCount(count);
+});
+
+test('knowledge sources and scheduling disruption are visible without a model key', async ({ page }) => {
+  await page.goto('/');
+  const knowledge = page.locator('.knowledge-panel');
+  await expect(knowledge).toContainText('SOP-COOL-01');
+  await page.locator('.case-list').getByRole('button', { name: /IND-004/ }).click();
+  await expect(knowledge).toContainText('SOP-DATA-04');
+  await knowledge.getByRole('textbox', { name: '检索设备知识' }).fill('不存在资料');
+  await knowledge.getByRole('button', { name: '检索', exact: true }).click();
+  await expect(knowledge).toContainText('没有匹配的知识卡片');
+
+  const scheduling = page.locator('.scheduling-panel');
+  await expect(scheduling.locator('.schedule-comparison article')).toHaveCount(2);
+  await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('总延期 0 h');
+  await scheduling.getByRole('combobox', { name: '设备扰动' }).selectOption('M-FAST');
+  await scheduling.getByRole('button', { name: '运行仿真' }).click();
+  await expect(scheduling).toContainText('高速加工单元停用');
+  await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('总延期 14 h');
+  await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('能耗 116 kWh');
 });

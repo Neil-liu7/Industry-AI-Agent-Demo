@@ -11,6 +11,8 @@ import { renderReport } from './report';
 import { runSafetyScenario, safetyScenarios } from '../safety-lab';
 import { randomUUID } from 'node:crypto';
 import { workOrderAssignees, type WorkOrder, type WorkOrderStatus } from '../domain/work-orders';
+import { loadKnowledgeLibrary, searchKnowledge } from '../knowledge';
+import { loadSchedulingDataset, simulateSchedule } from '../scheduling';
 
 const diagnosisInput = z.object({
   case_id: z.string().min(1), question: z.string().trim().min(1).max(2000),
@@ -26,10 +28,13 @@ const workOrderInput = z.object({
 }).strict();
 const workOrderStatusInput = z.object({ status: z.enum(['in_progress', 'completed']) }).strict();
 const checklistInput = z.object({ completed: z.boolean() }).strict();
+const schedulingInput = z.object({ unavailable_machine_id: z.string().nullable() }).strict();
 
 export function createApp(repository: Repository, engineFactory: () => OnlineEngine | null = onlineEngineFromEnv) {
   const skills = loadSkills();
   const evaluationSuite = loadEvaluationSuite(repository);
+  const knowledgeLibrary = loadKnowledgeLibrary(repository);
+  const schedulingDataset = loadSchedulingDataset();
   let evaluationRunning = false;
   const app = express();
   app.disable('x-powered-by');
@@ -48,6 +53,28 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     if (!data) return res.status(404).json({ error: 'Case not found' });
     const { maintenance_record: _maintenance, ...snapshot } = data;
     return res.json({ ...snapshot, metrics: calculateMetrics(data), evidence_ids: evidenceIds(data) });
+  });
+  app.get('/api/knowledge', (req, res) => {
+    const caseId = req.query.case_id;
+    const query = req.query.query;
+    if (typeof caseId !== 'string' || !repository.getCase(caseId) || typeof query !== 'string') {
+      return res.status(400).json({ error: 'Valid case_id and query are required' });
+    }
+    try {
+      return res.json({ case_id: caseId, query, version: knowledgeLibrary.version,
+        data_type: 'synthetic', results: searchKnowledge(knowledgeLibrary, caseId, query) });
+    } catch { return res.status(400).json({ error: 'Query must be 2–100 characters' }); }
+  });
+  app.get('/api/scheduling', (_req, res) => res.json(schedulingDataset));
+  app.post('/api/scheduling/simulate', (req, res) => {
+    const parsed = schedulingInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid scheduling scenario' });
+    try {
+      const unavailable = parsed.data.unavailable_machine_id;
+      return res.json({ data_type: 'synthetic', unavailable_machine_id: unavailable,
+        deadline_first: simulateSchedule(schedulingDataset, 'deadline_first', unavailable),
+        energy_first: simulateSchedule(schedulingDataset, 'energy_first', unavailable) });
+    } catch { return res.status(400).json({ error: 'Unavailable machine is unknown or leaves an order unschedulable' }); }
   });
   app.get('/api/agent/capabilities', (_req, res) => res.json({
     online_available: engineFactory() !== null, replay_available: true,

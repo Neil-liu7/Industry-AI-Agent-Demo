@@ -4,6 +4,8 @@ import type { EvaluationRun, EvaluationSuite } from '../evaluation';
 import type { RunResult, ToolTrace } from '../harness/run';
 import type { SafetyLabResult, SafetyScenario, SafetyScenarioId } from '../safety-lab';
 import { workOrderAssignees, type WorkOrder, type WorkOrderAssignee, type WorkOrderStatus } from '../domain/work-orders';
+import { KnowledgePanel } from './KnowledgePanel';
+import { SchedulingPanel } from './SchedulingPanel';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic';
   risk_level: RiskLevel; line_id: string; equipment_id: string; metrics: CaseMetrics };
@@ -368,7 +370,9 @@ export function App() {
           </article>;
         })}</div>}
       </section>
-      <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">08 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>
+      <KnowledgePanel caseId={caseId} checks={session?.diagnosis?.recommended_checks ?? []}/>
+      <SchedulingPanel/>
+      <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">10 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>
         <p className="fineprint">固定题集 v{evaluations?.suite.version ?? '—'} · {evaluations?.suite.cases.length ?? 0} 个合成案例。逐案检查规则一致、必需工具、证据和数据不足时的弃判，并保存每次真实运行。离线回放不计入成绩；此分数不衡量故障根因准确率。</p>
         <div className="evaluation-controls"><label>评测 Skill <select aria-label="评测 Skill" value={evaluationSkillId} onChange={(event) => setEvaluationSkillId(event.target.value)} disabled={evaluationBusy}>
           {capabilities?.skills.map((item) => <option key={item.id} value={item.id}>{item.name} · v{item.version}</option>)}
@@ -393,7 +397,7 @@ export function App() {
           </article>)}</div>
         </>}
       </section>
-      <section className="panel safety-panel"><div className="panel-title"><span className="eyebrow">09 / SAFETY LAB</span><h2>安全实验台</h2></div>
+      <section className="panel safety-panel"><div className="panel-title"><span className="eyebrow">11 / SAFETY LAB</span><h2>安全实验台</h2></div>
         <p className="fineprint">四个固定合成场景使用脚本化假模型触发真实 Harness 边界，无需模型 API Key。结果不写入诊断历史，也不计入在线评测；其中维修工具超时使用模拟挂起的 MCP 客户端。</p>
         <div className="safety-scenarios">{safetyLab?.scenarios.map((item) => <article key={item.id}>
           <div><b>{item.name}</b><p>{item.description}</p></div>

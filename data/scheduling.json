@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "data_type": "synthetic",
+  "line_id": "LINE-SIM",
+  "machines": [
+    { "id": "M-FAST", "name": "高速加工单元", "energy_kw": 18 },
+    { "id": "M-ECO", "name": "节能加工单元", "energy_kw": 8 }
+  ],
+  "orders": [
+    { "id": "ORD-101", "title": "齿轮组件 A", "due_h": 3, "duration_h": { "M-FAST": 2, "M-ECO": 3.5 } },
+    { "id": "ORD-102", "title": "驱动模块 B", "due_h": 5, "duration_h": { "M-FAST": 2, "M-ECO": 3.5 } },
+    { "id": "ORD-103", "title": "装配批次 C", "due_h": 7, "duration_h": { "M-FAST": 3, "M-ECO": 5 } },
+    { "id": "ORD-104", "title": "检修备件 D", "due_h": 8, "duration_h": { "M-FAST": 1.5, "M-ECO": 2.5 } }
+  ]
+}
