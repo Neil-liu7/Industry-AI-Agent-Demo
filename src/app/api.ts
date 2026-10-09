@@ -9,6 +9,8 @@ import { Repository } from '../storage/repository';
 import { onlineEngineFromEnv } from './model';
 import { renderReport } from './report';
 import { runSafetyScenario, safetyScenarios } from '../safety-lab';
+import { randomUUID } from 'node:crypto';
+import { workOrderAssignees, type WorkOrder, type WorkOrderStatus } from '../domain/work-orders';
 
 const diagnosisInput = z.object({
   case_id: z.string().min(1), question: z.string().trim().min(1).max(2000),
@@ -19,6 +21,11 @@ const evaluationInput = z.object({ skill_id: z.string().min(1) }).strict();
 const safetyInput = z.object({
   scenario_id: z.enum(['control-request', 'cross-case', 'forged-evidence', 'mcp-timeout']),
 }).strict();
+const workOrderInput = z.object({
+  session_id: z.string().uuid(), assignee: z.enum(workOrderAssignees.map((item) => item.id)),
+}).strict();
+const workOrderStatusInput = z.object({ status: z.enum(['in_progress', 'completed']) }).strict();
+const checklistInput = z.object({ completed: z.boolean() }).strict();
 
 export function createApp(repository: Repository, engineFactory: () => OnlineEngine | null = onlineEngineFromEnv) {
   const skills = loadSkills();
@@ -108,6 +115,60 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     const parsed = safetyInput.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid safety scenario' });
     return res.json(await runSafetyScenario(repository, parsed.data.scenario_id));
+  });
+  app.get('/api/work-orders', (req, res) => {
+    const caseId = req.query.case_id;
+    if (caseId !== undefined && (typeof caseId !== 'string' || !repository.getCase(caseId))) {
+      return res.status(400).json({ error: 'Invalid case_id' });
+    }
+    return res.json({ items: repository.listWorkOrders(caseId as string | undefined) });
+  });
+  app.post('/api/work-orders', (req, res) => {
+    const parsed = workOrderInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid work order request' });
+    const session = repository.getSession(parsed.data.session_id);
+    if (!session || session.status !== 'completed' || !session.diagnosis || session.diagnosis.recommended_checks.length === 0) {
+      return res.status(400).json({ error: 'A completed diagnosis with inspection checks is required' });
+    }
+    const data = repository.getCase(session.case_id);
+    if (!data) return res.status(400).json({ error: 'Case no longer exists' });
+    const now = new Date().toISOString();
+    const order: WorkOrder = {
+      id: randomUUID(), session_id: session.id, case_id: session.case_id, equipment_id: data.equipment_id,
+      created_at: now, updated_at: now, assignee: parsed.data.assignee, risk_level: session.metrics.risk_level,
+      status: 'open', diagnosis_summary: session.diagnosis.summary,
+      evidence_ids: [...session.diagnosis.evidence_ids],
+      checklist: session.diagnosis.recommended_checks.map((description) => ({ id: randomUUID(), description, completed: false })),
+    };
+    repository.saveWorkOrder(order);
+    return res.status(201).json(order);
+  });
+  app.patch('/api/work-orders/:id/status', (req, res) => {
+    const parsed = workOrderStatusInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid work order status' });
+    const order = repository.getWorkOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Work order not found' });
+    if (order.status === 'completed' || parsed.data.status === 'in_progress' && order.status !== 'open' ||
+      parsed.data.status === 'completed' && (order.status !== 'in_progress' || order.checklist.some((item) => !item.completed))) {
+      return res.status(409).json({ error: 'Work order transition is not allowed' });
+    }
+    order.status = parsed.data.status as WorkOrderStatus;
+    order.updated_at = new Date().toISOString();
+    repository.updateWorkOrder(order);
+    return res.json(order);
+  });
+  app.patch('/api/work-orders/:id/checklist/:itemId', (req, res) => {
+    const parsed = checklistInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid checklist update' });
+    const order = repository.getWorkOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Work order not found' });
+    const item = order.checklist.find((check) => check.id === req.params.itemId);
+    if (!item) return res.status(404).json({ error: 'Checklist item not found' });
+    if (order.status !== 'in_progress') return res.status(409).json({ error: 'Start the work order before updating checks' });
+    item.completed = parsed.data.completed;
+    order.updated_at = new Date().toISOString();
+    repository.updateWorkOrder(order);
+    return res.json(order);
   });
   app.get('/api/sessions', (req, res) => {
     const mode = req.query.mode;

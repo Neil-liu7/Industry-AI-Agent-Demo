@@ -3,6 +3,7 @@ import { calculateMetrics, RISK_THRESHOLDS, type IndustrialCase, type CaseMetric
 import type { EvaluationRun, EvaluationSuite } from '../evaluation';
 import type { RunResult, ToolTrace } from '../harness/run';
 import type { SafetyLabResult, SafetyScenario, SafetyScenarioId } from '../safety-lab';
+import { workOrderAssignees, type WorkOrder, type WorkOrderAssignee, type WorkOrderStatus } from '../domain/work-orders';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic';
   risk_level: RiskLevel; line_id: string; equipment_id: string; metrics: CaseMetrics };
@@ -13,10 +14,11 @@ type SessionPage = { items: RunResult[]; next_cursor: string | null };
 type ScenarioValues = { daily_output_units: number; temperature_c: number; vibration_mm_s: number };
 type EvaluationOverview = { suite: EvaluationSuite; runs: EvaluationRun[] };
 type SafetyLabOverview = { execution: 'scripted_fake_model'; data_type: 'synthetic'; scenarios: SafetyScenario[] };
+type WorkOrderOverview = { items: WorkOrder[] };
 
-async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function api<T>(path: string, body?: unknown, signal?: AbortSignal, method: 'POST' | 'PATCH' = 'POST'): Promise<T> {
   const response = await fetch(path, body === undefined ? { signal } : {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
+    method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error ?? '请求失败');
@@ -28,6 +30,8 @@ const format = (value: number | null, suffix = '%') => value === null ? '未知'
 const toolLabel: Record<string, string> = {
   get_line_snapshot: '产线快照', get_equipment_snapshot: '设备快照', get_maintenance_history: '维修记录',
 };
+const assigneeLabel = Object.fromEntries(workOrderAssignees.map((item) => [item.id, item.name])) as Record<WorkOrderAssignee, string>;
+const workOrderStatusLabel: Record<WorkOrderStatus, string> = { open: '待开始', in_progress: '处理中', completed: '已完成' };
 
 function MetricCard({ label, value, unit, change, alert }: { label: string; value: number | null; unit: string; change: number | null; alert?: boolean }) {
   return <article className={`metric-card ${alert ? 'metric-alert' : ''}`}>
@@ -83,6 +87,10 @@ export function App() {
   const [safetyLab, setSafetyLab] = useState<SafetyLabOverview | null>(null);
   const [safetyResult, setSafetyResult] = useState<SafetyLabResult | null>(null);
   const [safetyBusy, setSafetyBusy] = useState<SafetyScenarioId | null>(null);
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([]);
+  const [workOrderAssignee, setWorkOrderAssignee] = useState<WorkOrderAssignee>('equipment_technician');
+  const [creatingWorkOrder, setCreatingWorkOrder] = useState(false);
+  const [workOrderBusy, setWorkOrderBusy] = useState<string | null>(null);
   const selectedCase = useRef(caseId);
   selectedCase.current = caseId;
 
@@ -109,12 +117,15 @@ export function App() {
   }, [caseId]);
   useEffect(() => {
     if (!caseId) return;
-    setHistory([]); setCursor(null);
+    setHistory([]); setCursor(null); setWorkOrders([]);
     const controller = new AbortController();
     const query = new URLSearchParams({ case_id: caseId, limit: '8' });
     if (historyMode) query.set('mode', historyMode);
     void api<SessionPage>(`/api/sessions?${query}`, undefined, controller.signal)
       .then((page) => { setHistory(page.items); setCursor(page.next_cursor); })
+      .catch((failure) => { if (failure?.name !== 'AbortError') setError(String(failure)); });
+    void api<WorkOrderOverview>(`/api/work-orders?case_id=${encodeURIComponent(caseId)}`, undefined, controller.signal)
+      .then((overview) => setWorkOrders(overview.items))
       .catch((failure) => { if (failure?.name !== 'AbortError') setError(String(failure)); });
     return () => controller.abort();
   }, [caseId, historyMode]);
@@ -167,6 +178,40 @@ export function App() {
     try { setSafetyResult(await api<SafetyLabResult>('/api/safety-lab', { scenario_id: id })); }
     catch (failure) { setError(failure instanceof Error ? failure.message : '安全实验失败'); }
     finally { setSafetyBusy(null); }
+  }
+
+  async function createWorkOrder() {
+    if (!session?.diagnosis || session.status !== 'completed' || creatingWorkOrder) return;
+    setCreatingWorkOrder(true); setError('');
+    try {
+      const order = await api<WorkOrder>('/api/work-orders', { session_id: session.id, assignee: workOrderAssignee });
+      if (selectedCase.current === order.case_id) setWorkOrders((previous) => [order, ...previous]);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : '创建巡检工单失败'); }
+    finally { setCreatingWorkOrder(false); }
+  }
+
+  async function updateWorkOrderStatus(order: WorkOrder, status: 'in_progress' | 'completed') {
+    setWorkOrderBusy(order.id); setError('');
+    try {
+      const updated = await api<WorkOrder>(`/api/work-orders/${order.id}/status`, { status }, undefined, 'PATCH');
+      setWorkOrders((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+    } catch (failure) { setError(failure instanceof Error ? failure.message : '更新工单状态失败'); }
+    finally { setWorkOrderBusy(null); }
+  }
+
+  async function updateWorkOrderCheck(order: WorkOrder, itemId: string, completed: boolean) {
+    const optimistic = { ...order, updated_at: new Date().toISOString(),
+      checklist: order.checklist.map((item) => item.id === itemId ? { ...item, completed } : item) };
+    setWorkOrders((previous) => previous.map((item) => item.id === order.id ? optimistic : item));
+    setWorkOrderBusy(order.id); setError('');
+    try {
+      const updated = await api<WorkOrder>(`/api/work-orders/${order.id}/checklist/${itemId}`, { completed }, undefined, 'PATCH');
+      setWorkOrders((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+    } catch (failure) {
+      setWorkOrders((previous) => previous.map((item) => item.id === order.id ? order : item));
+      setError(failure instanceof Error ? failure.message : '更新检查项失败');
+    }
+    finally { setWorkOrderBusy(null); }
   }
 
   const active = session?.mode === 'replay' ? session.trace.slice(0, frame + 1) : session?.trace ?? [];
@@ -286,7 +331,13 @@ export function App() {
           <h3>建议的人工检查</h3><ul>{session.diagnosis?.recommended_checks.map((item) => <li key={item}>{item}</li>)}</ul>
           <h3>限制</h3><ul>{session.diagnosis?.limitations.map((item) => <li key={item}>{item}</li>)}</ul></div>
           <div><span className="eyebrow">本次证据</span>{session.evidence.map((item) => <details className="evidence" key={item.id}><summary><b>{toolLabel[item.tool]}</b><small>{item.source.toUpperCase()}</small><code>{item.id}</code></summary><pre>{JSON.stringify(item.data, null, 2)}</pre></details>)}
-            <a className="report-link" href={`/api/reports/${session.id}`} target="_blank" rel="noreferrer">打开可打印报告 ↗</a></div></div>
+            <a className="report-link" href={`/api/reports/${session.id}`} target="_blank" rel="noreferrer">打开可打印报告 ↗</a>
+            {session.status === 'completed' && session.diagnosis && session.diagnosis.recommended_checks.length > 0 && <div className="work-order-create">
+              <label htmlFor="work-order-assignee">巡检责任角色</label><select id="work-order-assignee" value={workOrderAssignee} onChange={(event) => setWorkOrderAssignee(event.target.value as WorkOrderAssignee)} disabled={creatingWorkOrder}>
+                {workOrderAssignees.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select><button onClick={() => void createWorkOrder()} disabled={creatingWorkOrder}>{creatingWorkOrder ? '创建中…' : '生成巡检工单'}</button>
+              <small>根据本次通过校验的诊断建议创建；只记录人工检查，不控制设备。</small>
+            </div>}</div></div>
       </section>}
       <section className="panel history-panel"><div className="panel-title"><span className="eyebrow">06 / SESSION HISTORY</span><h2>诊断历史</h2></div>
         <div className="history-toolbar"><span>{selected?.case_id ?? ''} · 持久化会话</span><select aria-label="筛选模式" value={historyMode} onChange={(event) => setHistoryMode(event.target.value)}>
@@ -296,7 +347,28 @@ export function App() {
           <span className={`mode-tag ${item.mode}`}>{item.mode === 'replay' ? '回放' : '在线'}</span><span className={`risk risk-${item.metrics.risk_level.toLowerCase()}`}>{riskLabel[item.metrics.risk_level]}</span><span>查看 →</span>
         </button>)}</div>}{cursor && <button className="more" onClick={() => void loadMore()}>加载更多历史</button>}
       </section>
-      <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">07 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>
+      <section className="panel work-orders-panel"><div className="panel-title"><span className="eyebrow">07 / HUMAN FOLLOW-UP</span><h2>人工巡检工单</h2></div>
+        <p className="fineprint">工单来自已完成的诊断建议，保留来源案例与证据 ID。完成每项检查后勾选记录，全部检查完成后才可关闭工单。</p>
+        {workOrders.length === 0 ? <p className="fineprint">当前案例暂无巡检工单。完成一次诊断后，可从诊断结果生成。</p> : <div className="work-order-list">{workOrders.map((order) => {
+          const allChecked = order.checklist.every((item) => item.completed);
+          return <article className="work-order-card" key={order.id}>
+            <header><div><b>{order.case_id} · {order.equipment_id}</b><small>工单 {order.id.slice(0, 8)} · 来源诊断 {order.session_id.slice(0, 8)}</small></div>
+              <span className={`risk risk-${order.risk_level.toLowerCase()}`}>{riskLabel[order.risk_level]}</span>
+              <span className={`work-order-status ${order.status}`}>{workOrderStatusLabel[order.status]}</span></header>
+            <p>{order.diagnosis_summary}</p><div className="work-order-meta"><span>责任角色：{assigneeLabel[order.assignee]}</span><span>更新时间：{new Date(order.updated_at).toLocaleString('zh-CN')}</span></div>
+            <ul className="work-order-checklist">{order.checklist.map((item) => <li key={item.id}>
+              <label><input type="checkbox" checked={item.completed} disabled={order.status !== 'in_progress' || workOrderBusy === order.id}
+                onChange={(event) => void updateWorkOrderCheck(order, item.id, event.target.checked)}/><span>{item.description}</span></label>
+            </li>)}</ul>
+            <div className="work-order-evidence">关联证据：{order.evidence_ids.join(' · ')}</div>
+            {order.status !== 'completed' && <div className="work-order-actions">
+              {order.status === 'open' ? <button onClick={() => void updateWorkOrderStatus(order, 'in_progress')} disabled={workOrderBusy === order.id}>开始巡检</button> : <button onClick={() => void updateWorkOrderStatus(order, 'completed')} disabled={!allChecked || workOrderBusy === order.id}>完成工单</button>}
+              {order.status === 'in_progress' && !allChecked && <small>完成全部检查项后可关闭工单。</small>}
+            </div>}
+          </article>;
+        })}</div>}
+      </section>
+      <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">08 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>
         <p className="fineprint">固定题集 v{evaluations?.suite.version ?? '—'} · {evaluations?.suite.cases.length ?? 0} 个合成案例。逐案检查规则一致、必需工具、证据和数据不足时的弃判，并保存每次真实运行。离线回放不计入成绩；此分数不衡量故障根因准确率。</p>
         <div className="evaluation-controls"><label>评测 Skill <select aria-label="评测 Skill" value={evaluationSkillId} onChange={(event) => setEvaluationSkillId(event.target.value)} disabled={evaluationBusy}>
           {capabilities?.skills.map((item) => <option key={item.id} value={item.id}>{item.name} · v{item.version}</option>)}
@@ -321,7 +393,7 @@ export function App() {
           </article>)}</div>
         </>}
       </section>
-      <section className="panel safety-panel"><div className="panel-title"><span className="eyebrow">08 / SAFETY LAB</span><h2>安全实验台</h2></div>
+      <section className="panel safety-panel"><div className="panel-title"><span className="eyebrow">09 / SAFETY LAB</span><h2>安全实验台</h2></div>
         <p className="fineprint">四个固定合成场景使用脚本化假模型触发真实 Harness 边界，无需模型 API Key。结果不写入诊断历史，也不计入在线评测；其中维修工具超时使用模拟挂起的 MCP 客户端。</p>
         <div className="safety-scenarios">{safetyLab?.scenarios.map((item) => <article key={item.id}>
           <div><b>{item.name}</b><p>{item.description}</p></div>

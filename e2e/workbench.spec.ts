@@ -188,3 +188,26 @@ test('safety lab runs without a model key and keeps the result separate from dia
   const after = await (await page.request.get('/api/sessions?case_id=IND-001')).json();
   expect(after.items.map((item: { id: string }) => item.id)).toEqual(before.items.map((item: { id: string }) => item.id));
 });
+
+test('a validated diagnosis can move through a persisted human inspection checklist', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /一键演示/ }).click();
+  await page.getByRole('button', { name: '暂停' }).click();
+  for (let index = 0; index < 6; index++) await page.getByRole('button', { name: '下一步' }).click();
+  await page.getByRole('combobox', { name: '巡检责任角色' }).selectOption('quality_engineer');
+  await page.getByRole('button', { name: '生成巡检工单' }).click();
+
+  const panel = page.locator('.work-orders-panel');
+  const card = panel.locator('.work-order-card').first();
+  await expect(card).toContainText('IND-001 · EQ-003');
+  await expect(card).toContainText('质量工程师');
+  await card.getByRole('button', { name: '开始巡检' }).click();
+  const checks = card.locator('input[type="checkbox"]');
+  const count = await checks.count();
+  expect(count).toBeGreaterThan(0);
+  await expect(checks.first()).toBeEnabled();
+  for (let index = 0; index < count; index++) await checks.nth(index).check();
+  await card.getByRole('button', { name: '完成工单' }).click();
+  await expect(card).toContainText('已完成');
+  await expect(card.locator('input[type="checkbox"]:checked')).toHaveCount(count);
+});

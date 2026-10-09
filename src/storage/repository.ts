@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { caseSchema, type IndustrialCase } from '../domain/cases';
 import type { EvaluationRun } from '../evaluation';
 import type { RunResult } from '../harness/run';
+import type { WorkOrder } from '../domain/work-orders';
 
 export function databasePath() {
   return join(process.env.DATA_DIR ?? 'data', 'demo.sqlite');
@@ -31,6 +32,10 @@ export class Repository {
         id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS evaluation_runs_order ON evaluation_runs(created_at DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS work_orders (
+        id TEXT PRIMARY KEY, case_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS work_orders_case_order ON work_orders(case_id, created_at DESC, id DESC);
     `);
   }
 
@@ -93,6 +98,28 @@ export class Repository {
   getEvaluation(id: string): EvaluationRun | null {
     const row = this.db.prepare('SELECT payload FROM evaluation_runs WHERE id = ?').get(id);
     return row ? JSON.parse(String(row.payload)) as EvaluationRun : null;
+  }
+
+  saveWorkOrder(order: WorkOrder) {
+    this.db.prepare('INSERT INTO work_orders VALUES (?, ?, ?, ?, ?)').run(
+      order.id, order.case_id, order.created_at, order.updated_at, JSON.stringify(order));
+  }
+
+  updateWorkOrder(order: WorkOrder) {
+    this.db.prepare('UPDATE work_orders SET updated_at = ?, payload = ? WHERE id = ?')
+      .run(order.updated_at, JSON.stringify(order), order.id);
+  }
+
+  getWorkOrder(id: string): WorkOrder | null {
+    const row = this.db.prepare('SELECT payload FROM work_orders WHERE id = ?').get(id);
+    return row ? JSON.parse(String(row.payload)) as WorkOrder : null;
+  }
+
+  listWorkOrders(caseId?: string): WorkOrder[] {
+    const rows = caseId
+      ? this.db.prepare('SELECT payload FROM work_orders WHERE case_id = ? ORDER BY created_at DESC, id DESC LIMIT 50').all(caseId)
+      : this.db.prepare('SELECT payload FROM work_orders ORDER BY created_at DESC, id DESC LIMIT 50').all();
+    return rows.map((row) => JSON.parse(String(row.payload)) as WorkOrder);
   }
 
   listSessions(filters: { case_id?: string; mode?: 'online' | 'replay'; limit?: number; cursor?: string }) {
