@@ -15,6 +15,7 @@ const diagnosisInput = z.object({
 const replayInput = z.object({ case_id: z.string().min(1) }).strict();
 
 export function createApp(repository: Repository, engineFactory: () => OnlineEngine | null = onlineEngineFromEnv) {
+  const skills = loadSkills();
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '16kb' }));
@@ -31,7 +32,7 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
   });
   app.get('/api/agent/capabilities', (_req, res) => res.json({
     online_available: engineFactory() !== null, replay_available: true,
-    skills: loadSkills().map(({ id, version, name, purpose }) => ({ id, version, name, purpose })),
+    skills: skills.map(({ id, version, name, purpose }) => ({ id, version, name, purpose })),
     tools: [
       { name: 'get_line_snapshot', source: 'local' },
       { name: 'get_equipment_snapshot', source: 'local' },

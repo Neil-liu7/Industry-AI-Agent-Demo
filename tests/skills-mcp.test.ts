@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadSkills, selectSkill } from '../src/skills';
 import { MaintenanceClient } from '../src/mcp/client';
 import { Repository } from '../src/storage/repository';
+import { createApp } from '../src/app/api';
 
 describe('trusted skills', () => {
   const skills = loadSkills();
@@ -14,6 +15,23 @@ describe('trusted skills', () => {
     expect(selectSkill(skills, '设备巡检优先级').id).toBe('equipment-priority-patrol');
     expect(selectSkill(skills, '产量为何下降').id).toBe('line-anomaly-diagnosis');
     expect(() => selectSkill(skills, 'anything', 'missing')).toThrow('Unknown skill');
+  });
+
+  it('refuses to start the API with malformed skill declarations', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pi-invalid-skills-'));
+    const previous = process.cwd();
+    const repository = new Repository(':memory:');
+    try {
+      mkdirSync(join(dir, 'src', 'skills'), { recursive: true });
+      writeFileSync(join(dir, 'src', 'skills', 'line-diagnosis.json'), '{}');
+      writeFileSync(join(dir, 'src', 'skills', 'equipment-patrol.json'), '{}');
+      process.chdir(dir);
+      expect(() => createApp(repository, () => null)).toThrow();
+    } finally {
+      process.chdir(previous);
+      repository.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
