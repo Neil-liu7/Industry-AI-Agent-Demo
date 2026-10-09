@@ -11,10 +11,10 @@ export function databasePath() {
 export class Repository {
   readonly db: DatabaseSync;
 
-  constructor(path = databasePath()) {
-    if (path !== ':memory:') mkdirSync(join(path, '..'), { recursive: true });
-    this.db = new DatabaseSync(path);
-    this.db.exec(`
+  constructor(path = databasePath(), options: { readOnly?: boolean } = {}) {
+    if (path !== ':memory:' && !options.readOnly) mkdirSync(join(path, '..'), { recursive: true });
+    this.db = new DatabaseSync(path, { readOnly: options.readOnly ?? false });
+    if (!options.readOnly) this.db.exec(`
       CREATE TABLE IF NOT EXISTS cases (case_id TEXT PRIMARY KEY, payload TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS maintenance_records (
         case_id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL,

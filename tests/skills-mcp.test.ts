@@ -49,4 +49,12 @@ describe('read-only stdio MCP', () => {
     await disconnected.close();
     expect(disconnected.childPid).toBeNull();
   });
+
+  it('opens the maintenance database in read-only mode', () => {
+    const readonly = new Repository(join(dir, 'demo.sqlite'), { readOnly: true });
+    expect(readonly.getMaintenance('IND-001', 'EQ-003')?.record_id).toBe('MAINT-003');
+    expect(() => readonly.seed()).toThrow();
+    readonly.close();
+    expect(() => new Repository(join(dir, 'absent.sqlite'), { readOnly: true })).toThrow();
+  });
 });

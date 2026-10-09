@@ -1,9 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { Repository } from '../storage/repository';
+import { databasePath, Repository } from '../storage/repository';
 
-const repository = new Repository();
+const repository = new Repository(databasePath(), { readOnly: true });
 const server = new McpServer({ name: 'industrial-maintenance-readonly', version: '1.0.0' });
 
 server.registerTool('get_maintenance_history', {
