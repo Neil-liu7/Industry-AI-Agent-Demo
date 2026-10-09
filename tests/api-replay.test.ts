@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { createApp } from '../src/app/api';
 import { renderReport } from '../src/app/report';
 import { Repository } from '../src/storage/repository';
+import { fakeMessage, fakeModel, scriptedStream } from './helpers/fake-model';
+import type { AssistantMessage } from '@earendil-works/pi-ai';
 
 describe('diagnosis API, replay and durable history', () => {
   const dir = mkdtempSync(join(tmpdir(), 'pi-api-'));
@@ -14,6 +16,7 @@ describe('diagnosis API, replay and durable history', () => {
   let server: Server;
   let base: string;
   beforeAll(async () => {
+    process.env.DATA_DIR = dir;
     repository = new Repository(path);
     repository.seed();
     server = createApp(repository, () => null).listen(0, '127.0.0.1');
@@ -25,6 +28,7 @@ describe('diagnosis API, replay and durable history', () => {
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     repository.close();
+    delete process.env.DATA_DIR;
     rmSync(dir, { recursive: true, force: true });
   });
   const post = async (url: string, body: unknown) => fetch(base + url, {
@@ -79,5 +83,38 @@ describe('diagnosis API, replay and durable history', () => {
     expect((await fetch(base + '/api/sessions?cursor=bad')).status).toBe(400);
     const session = repository.listSessions({ case_id: 'IND-001' }).items[0];
     expect(renderReport({ ...session, question: '<script>alert(1)</script>' })).not.toContain('<script>');
+  });
+
+  it('persists an online Pi run with real local and MCP tool routes', async () => {
+    const calls: AssistantMessage['content'] = [
+      { type: 'toolCall' as const, id: '1', name: 'get_line_snapshot', arguments: { case_id: 'IND-001', line_id: 'LINE-03' } },
+      { type: 'toolCall' as const, id: '2', name: 'get_equipment_snapshot', arguments: { case_id: 'IND-001', equipment_id: 'EQ-003' } },
+      { type: 'toolCall' as const, id: '3', name: 'get_maintenance_history', arguments: { case_id: 'IND-001', equipment_id: 'EQ-003' } },
+    ];
+    const response = JSON.stringify({ summary: '需要人工核查设备升温。', risk_level: 'HIGH',
+      evidence_ids: ['IND-001:line:2026-09-22', 'IND-001:equipment:2026-09-22', 'IND-001:maintenance:MAINT-003'],
+      hypotheses: ['冷却状态待核查'], recommended_checks: ['人工检查冷却回路'], limitations: ['合成数据'] });
+    const online = createApp(repository, () => ({ model: fakeModel, streamFn: scriptedStream([
+      fakeMessage(calls, 'toolUse'), fakeMessage([{ type: 'text', text: response }], 'stop'),
+    ]) }));
+    const onlineServer = online.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => onlineServer.once('listening', resolve));
+    const address = onlineServer.address();
+    if (!address || typeof address === 'string') throw new Error('No online test port');
+    try {
+      const result = await fetch(`http://127.0.0.1:${address.port}/api/diagnose`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ case_id: 'IND-001', question: '诊断产线' }),
+      });
+      expect(result.status).toBe(200);
+      const session = await result.json();
+      expect(session.status).toBe('completed');
+      expect(session.mode).toBe('online');
+      expect(session.trace.filter((item: { kind: string }) => item.kind === 'tool')
+        .map((item: { source: string }) => item.source)).toEqual(['local', 'local', 'mcp']);
+      expect(repository.getSession(session.id)?.mode).toBe('online');
+    } finally {
+      await new Promise<void>((resolve) => onlineServer.close(() => resolve()));
+    }
   });
 });

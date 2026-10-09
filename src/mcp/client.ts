@@ -20,6 +20,8 @@ export class MaintenanceClient {
     });
   }
 
+  get childPid() { return this.transport.pid; }
+
   async connect() {
     await this.client.connect(this.transport);
     const tools = await this.client.listTools(undefined, { timeout: 5000 });

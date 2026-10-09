@@ -38,4 +38,15 @@ describe('read-only stdio MCP', () => {
     expect(history.evidence_id).toBe('IND-001:maintenance:MAINT-003');
     await expect(client.getHistory('IND-001', 'EQ-002')).rejects.toThrow();
   });
+
+  it('reports a disconnected child and releases the process', async () => {
+    const disconnected = new MaintenanceClient();
+    await disconnected.connect();
+    const pid = disconnected.childPid;
+    expect(pid).toBeTypeOf('number');
+    process.kill(pid!, 'SIGKILL');
+    await expect(disconnected.getHistory('IND-001', 'EQ-003')).rejects.toThrow();
+    await disconnected.close();
+    expect(disconnected.childPid).toBeNull();
+  });
 });
