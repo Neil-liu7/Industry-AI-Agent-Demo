@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+coverage/
+playwright-report/
+test-results/
