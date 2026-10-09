@@ -88,6 +88,7 @@ export async function runDiagnosis(
     metrics, diagnosis: null, evidence, trace, stop_reason: 'UNKNOWN', model_calls: 0, tool_calls: 0,
     token_usage: null,
   };
+  const deadlineAt = Date.now() + (options.timeoutMs ?? 30000);
   const traceContext = (): TraceContext => ({ run_id: result.id, skill_id: skill.id, skill_version: skill.version,
     budget: { model_calls: result.model_calls, tool_calls: result.tool_calls } });
   const step = (name: string, status: StepTrace['status'], detail?: string) =>
@@ -107,6 +108,18 @@ export async function runDiagnosis(
   let ownsClient = false;
   let stopReason: string | null = null;
   let timedOut = false;
+  let activeAgent: Agent | undefined;
+  async function withinDeadline<T>(work: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        stopReason = 'TASK_TIMEOUT'; timedOut = true; activeAgent?.abort();
+        reject(new Error('TASK_TIMEOUT'));
+      }, Math.max(0, deadlineAt - Date.now()));
+    });
+    try { return await Promise.race([work, deadline]); }
+    finally { clearTimeout(timer); }
+  }
   const retries = new Map<string, number>();
   const completedSkillSteps = new Set<string>();
   const stepForTool: Record<ToolName, string> = {
@@ -189,7 +202,7 @@ export async function runDiagnosis(
     if (skill.allowed_tools.includes('get_maintenance_history') && !client) {
       client = new MaintenanceClient();
       ownsClient = true;
-      await client.connect();
+      await withinDeadline(client.connect());
     }
     step('工具发现', 'completed', skill.allowed_tools.join(', '));
     const agent = new Agent({
@@ -223,6 +236,7 @@ export async function runDiagnosis(
       },
       finishTurn: () => stopReason ? { action: 'end' } : undefined,
     });
+    activeAgent = agent;
     agent.subscribe((event: AgentEvent) => {
       if (timedOut) return;
       if (event.type === 'tool_execution_start') {
@@ -250,15 +264,7 @@ export async function runDiagnosis(
         if (typeof usage === 'number' && usage > 0) result.token_usage = (result.token_usage ?? 0) + usage;
       }
     });
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        stopReason = 'TASK_TIMEOUT'; timedOut = true; agent.abort();
-        reject(new Error('TASK_TIMEOUT'));
-      }, options.timeoutMs ?? 30000);
-    });
-    try { await Promise.race([agent.prompt(input.question), deadline]); }
-    finally { clearTimeout(timer); }
+    await withinDeadline(agent.prompt(input.question));
     if (stopReason) throw new Error(stopReason);
     if (agent.state.errorMessage) throw new Error('MODEL_ERROR');
     if (!skill.required_tools.every((name) => called.has(name))) throw new Error('REQUIRED_TOOLS_MISSING');

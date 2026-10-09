@@ -201,6 +201,21 @@ describe('industrial Pi harness', () => {
     expect(result.trace.at(-1)?.stop_reason).toBe('TASK_TIMEOUT');
   });
 
+  it('includes MCP setup in the total task deadline', async () => {
+    const connect = vi.spyOn(MaintenanceClient.prototype, 'connect')
+      .mockImplementation(() => new Promise<void>(() => {}));
+    const close = vi.spyOn(MaintenanceClient.prototype, 'close').mockResolvedValue();
+    try {
+      const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
+        model: fakeModel, streamFn: scriptedStream([]),
+      }, { timeoutMs: 30 });
+      expect(result.status).toBe('failed');
+      expect(result.stop_reason).toBe('TASK_TIMEOUT');
+      expect(result.model_calls).toBe(0);
+      expect(result.trace.at(-1)?.stop_reason).toBe('TASK_TIMEOUT');
+    } finally { connect.mockRestore(); close.mockRestore(); }
+  });
+
   it('ignores a model response that arrives after the task deadline', async () => {
     const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
       model: fakeModel,
