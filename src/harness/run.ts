@@ -274,7 +274,15 @@ export async function runDiagnosis(
     result.stop_reason = stopReason ?? (error instanceof Error ? error.message : 'UNKNOWN_ERROR');
     step('安全终止', 'failed', result.stop_reason.slice(0, 180));
   } finally {
-    if (ownsClient) await client?.close();
+    if (ownsClient) {
+      try { await client?.close(); }
+      catch {
+        if (result.status === 'completed') {
+          result.status = 'failed'; result.diagnosis = null; result.stop_reason = 'MCP_CLEANUP_ERROR';
+        }
+        step('MCP 资源清理', 'failed', 'MCP 子进程未能正常关闭');
+      }
+    }
   }
   finalizeTrace();
   return result;

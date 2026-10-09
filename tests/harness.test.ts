@@ -173,6 +173,25 @@ describe('industrial Pi harness', () => {
     } finally { spy.mockRestore(); }
   });
 
+  it('returns a failed session with trace if MCP cleanup reports an error', async () => {
+    const original = MaintenanceClient.prototype.close;
+    const spy = vi.spyOn(MaintenanceClient.prototype, 'close')
+      .mockImplementation(async function (this: MaintenanceClient) {
+        await original.call(this);
+        throw new Error('close failed');
+      });
+    try {
+      const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
+        model: fakeModel, streamFn: scriptedStream([fakeMessage(fullCalls, 'toolUse'),
+          fakeMessage([{ type: 'text', text: report() }], 'stop')]),
+      });
+      expect(result.status).toBe('failed');
+      expect(result.stop_reason).toBe('MCP_CLEANUP_ERROR');
+      expect(result.evidence).toHaveLength(3);
+      expect(result.trace.at(-1)?.stop_reason).toBe('MCP_CLEANUP_ERROR');
+    } finally { spy.mockRestore(); }
+  });
+
   it('terminates a stalled model request at the task deadline', async () => {
     const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
       model: fakeModel, streamFn: () => createAssistantMessageEventStream(),
