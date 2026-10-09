@@ -1,0 +1,83 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import type { Server } from 'node:http';
+import { createApp } from '../src/app/api';
+import { renderReport } from '../src/app/report';
+import { Repository } from '../src/storage/repository';
+
+describe('diagnosis API, replay and durable history', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pi-api-'));
+  const path = join(dir, 'demo.sqlite');
+  let repository: Repository;
+  let server: Server;
+  let base: string;
+  beforeAll(async () => {
+    repository = new Repository(path);
+    repository.seed();
+    server = createApp(repository, () => null).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    base = `http://127.0.0.1:${address.port}`;
+  });
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    repository.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const post = async (url: string, body: unknown) => fetch(base + url, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+
+  it('exposes three consistent cases and reports online unavailability without a key', async () => {
+    const cases = await (await fetch(base + '/api/cases')).json();
+    expect(cases.map((item: { case_id: string }) => item.case_id)).toEqual(['IND-001', 'IND-002', 'IND-003']);
+    const snapshot = await (await fetch(base + '/api/cases/IND-003/snapshot')).json();
+    expect(snapshot.metrics.risk_level).toBe('MEDIUM');
+    const capabilities = await (await fetch(base + '/api/agent/capabilities')).json();
+    expect(capabilities.online_available).toBe(false);
+    expect((await post('/api/diagnose', { case_id: 'IND-001', question: '诊断产线' })).status).toBe(503);
+  });
+
+  it('replays each case without model or MCP calls and persists filtered history', async () => {
+    for (const [caseId, risk] of [['IND-001', 'HIGH'], ['IND-002', 'LOW'], ['IND-003', 'MEDIUM']]) {
+      const response = await post('/api/replay', { case_id: caseId });
+      expect(response.status).toBe(200);
+      const session = await response.json();
+      expect(session.case_id).toBe(caseId);
+      expect(session.mode).toBe('replay');
+      expect(session.diagnosis.risk_level).toBe(risk);
+      expect(session.model_calls).toBe(0);
+      expect(session.tool_calls).toBe(0);
+      expect(session.trace.filter((item: { kind: string }) => item.kind === 'tool')
+        .every((item: { replayed: boolean }) => item.replayed)).toBe(true);
+      const detail = await (await fetch(base + `/api/sessions/${session.id}`)).json();
+      expect(detail.diagnosis.evidence_ids).toEqual(session.evidence.map((item: { id: string }) => item.id));
+      const report = await (await fetch(base + `/api/reports/${session.id}`)).text();
+      expect(report).toContain(caseId);
+      expect(report).toContain('离线预录回放');
+      expect(report).toContain('合成数据');
+    }
+    const first = await (await fetch(base + '/api/sessions?mode=replay&limit=1')).json();
+    expect(first.items).toHaveLength(1);
+    expect(first.next_cursor).toBeTruthy();
+    const second = await (await fetch(base + `/api/sessions?mode=replay&limit=1&cursor=${first.next_cursor}`)).json();
+    expect(second.items).toHaveLength(1);
+    expect(second.items[0].id).not.toBe(first.items[0].id);
+    const filtered = await (await fetch(base + '/api/sessions?case_id=IND-002')).json();
+    expect(filtered.items.map((item: { case_id: string }) => item.case_id)).toEqual(['IND-002']);
+    const reopened = new Repository(path);
+    expect(reopened.listSessions({}).items).toHaveLength(3);
+    reopened.close();
+  });
+
+  it('rejects invalid input and escapes report text', async () => {
+    expect((await post('/api/replay', {})).status).toBe(400);
+    expect((await post('/api/replay', { case_id: 'IND-999' })).status).toBe(400);
+    expect((await fetch(base + '/api/sessions?cursor=bad')).status).toBe(400);
+    const session = repository.listSessions({ case_id: 'IND-001' }).items[0];
+    expect(renderReport({ ...session, question: '<script>alert(1)</script>' })).not.toContain('<script>');
+  });
+});

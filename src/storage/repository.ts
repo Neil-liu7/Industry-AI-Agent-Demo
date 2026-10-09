@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { caseSchema, type IndustrialCase } from '../domain/cases';
+import type { RunResult } from '../harness/run';
 
 export function databasePath() {
   return join(process.env.DATA_DIR ?? 'data', 'demo.sqlite');
@@ -19,6 +20,11 @@ export class Repository {
         case_id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL,
         record_id TEXT NOT NULL, date TEXT NOT NULL, summary TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY, case_id TEXT NOT NULL, mode TEXT NOT NULL,
+        status TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS sessions_filter ON sessions(case_id, mode, created_at DESC, id DESC);
     `);
   }
 
@@ -54,6 +60,42 @@ export class Repository {
     const row = this.db.prepare('SELECT record_id, date, summary FROM maintenance_records WHERE case_id = ? AND equipment_id = ?')
       .get(caseId, equipmentId);
     return row ? { record_id: String(row.record_id), date: String(row.date), summary: String(row.summary) } : null;
+  }
+
+  saveSession(session: RunResult) {
+    this.db.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)').run(
+      session.id, session.case_id, session.mode, session.status, session.created_at, JSON.stringify(session));
+  }
+
+  getSession(id: string): RunResult | null {
+    const row = this.db.prepare('SELECT payload FROM sessions WHERE id = ?').get(id);
+    return row ? JSON.parse(String(row.payload)) as RunResult : null;
+  }
+
+  listSessions(filters: { case_id?: string; mode?: 'online' | 'replay'; limit?: number; cursor?: string }) {
+    const limit = Math.max(1, Math.min(filters.limit ?? 20, 50));
+    let cursor: { created_at: string; id: string } | null = null;
+    if (filters.cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(filters.cursor, 'base64url').toString('utf8'));
+        if (typeof decoded.created_at !== 'string' || typeof decoded.id !== 'string') throw new Error();
+        cursor = decoded;
+      } catch { throw new Error('Invalid cursor'); }
+    }
+    const where = ['1=1'];
+    const params: (string | number)[] = [];
+    if (filters.case_id) { where.push('case_id = ?'); params.push(filters.case_id); }
+    if (filters.mode) { where.push('mode = ?'); params.push(filters.mode); }
+    if (cursor) { where.push('(created_at < ? OR (created_at = ? AND id < ?))');
+      params.push(cursor.created_at, cursor.created_at, cursor.id); }
+    const rows = this.db.prepare(`SELECT payload, created_at, id FROM sessions WHERE ${where.join(' AND ')}
+      ORDER BY created_at DESC, id DESC LIMIT ?`).all(...params, limit + 1);
+    const items = rows.slice(0, limit).map((row) => JSON.parse(String(row.payload)) as RunResult);
+    const last = rows[limit - 1];
+    const next_cursor = rows.length > limit && last ? Buffer.from(JSON.stringify({
+      created_at: last.created_at, id: last.id,
+    })).toString('base64url') : null;
+    return { items, next_cursor };
   }
 
   close() { this.db.close(); }

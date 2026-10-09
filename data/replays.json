@@ -1,0 +1,26 @@
+{
+  "IND-001": {
+    "summary": "3 号产线产量下降 15%，设备温度和振动同步升高，建议优先人工排查。",
+    "risk_level": "HIGH",
+    "evidence_ids": ["IND-001:line:2026-09-22", "IND-001:equipment:2026-09-22", "IND-001:maintenance:MAINT-003"],
+    "hypotheses": ["冷却回路状态异常待核查", "轴承状态异常待核查"],
+    "recommended_checks": ["人工核查冷却流量及温度传感器", "人工检查轴承振动趋势与巡检记录"],
+    "limitations": ["全部数据为合成样例", "维修记录只提供线索，不能证明当前故障原因"]
+  },
+  "IND-002": {
+    "summary": "正常对照案例各关键指标未越阈，维持常规人工巡检。",
+    "risk_level": "LOW",
+    "evidence_ids": ["IND-002:line:2026-09-22", "IND-002:equipment:2026-09-22", "IND-002:maintenance:MAINT-002"],
+    "hypotheses": [],
+    "recommended_checks": ["按既定周期人工巡检并继续观察趋势"],
+    "limitations": ["全部数据为合成样例", "低风险不等于设备无故障"]
+  },
+  "IND-003": {
+    "summary": "产量稳定，但设备温度单指标越阈，建议人工核查测量与冷却状态。",
+    "risk_level": "MEDIUM",
+    "evidence_ids": ["IND-003:line:2026-09-22", "IND-003:equipment:2026-09-22", "IND-003:maintenance:MAINT-001"],
+    "hypotheses": ["温度读数或冷却状态待核查"],
+    "recommended_checks": ["人工复核传感器校准记录和设备温度"],
+    "limitations": ["全部数据为合成样例", "单指标异常不能确定根因"]
+  }
+}

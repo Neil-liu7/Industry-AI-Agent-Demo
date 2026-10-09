@@ -11,7 +11,7 @@ type ToolName = Skill['allowed_tools'][number];
 type Source = 'local' | 'mcp';
 export type ToolTrace = {
   kind: 'tool'; tool_call_id: string; name: string; source: Source | 'unknown';
-  status: 'running' | 'completed' | 'failed'; started_at: string; ended_at?: string;
+  status: 'running' | 'completed' | 'failed'; started_at: string; ended_at?: string; replayed?: boolean;
   duration_ms?: number; args: Record<string, unknown>; result_summary?: string;
   evidence_id?: string; retry_count: number;
 };
@@ -19,7 +19,7 @@ export type StepTrace = { kind: 'step'; name: string; status: 'completed' | 'fai
 export type Trace = ToolTrace | StepTrace;
 export type Evidence = { id: string; source: Source; tool: ToolName; data: Record<string, unknown> };
 export type RunResult = {
-  id: string; case_id: string; mode: 'online'; status: 'completed' | 'failed';
+  id: string; case_id: string; mode: 'online' | 'replay'; status: 'completed' | 'failed';
   created_at: string; question: string; snapshot_date: string; data_type: 'synthetic';
   skill: Pick<Skill, 'id' | 'version' | 'name'>; metrics: CaseMetrics;
   diagnosis: Diagnosis | null; evidence: Evidence[]; trace: Trace[];
