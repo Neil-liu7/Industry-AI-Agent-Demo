@@ -1,0 +1,12 @@
+{
+  "id": "industrial-synthetic-v1",
+  "version": "1.0.0",
+  "question": "请基于当前合成案例完成只读辅助诊断，并提出需要人工核查的事项。",
+  "cases": [
+    { "case_id": "IND-001", "expected_risk": "HIGH" },
+    { "case_id": "IND-002", "expected_risk": "LOW" },
+    { "case_id": "IND-003", "expected_risk": "MEDIUM" },
+    { "case_id": "IND-004", "expected_risk": "UNKNOWN" },
+    { "case_id": "IND-005", "expected_risk": "MEDIUM" }
+  ]
+}

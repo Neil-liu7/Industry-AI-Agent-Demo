@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { calculateMetrics, RISK_THRESHOLDS, type IndustrialCase, type CaseMetrics, type RiskLevel } from '../domain/cases';
+import type { EvaluationRun, EvaluationSuite } from '../evaluation';
 import type { RunResult, ToolTrace } from '../harness/run';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic';
@@ -9,6 +10,7 @@ type SkillSummary = { id: string; name: string; version: string; purpose: string
 type Capabilities = { online_available: boolean; replay_available: boolean; skills: SkillSummary[]; limits: Record<string, number> };
 type SessionPage = { items: RunResult[]; next_cursor: string | null };
 type ScenarioValues = { daily_output_units: number; temperature_c: number; vibration_mm_s: number };
+type EvaluationOverview = { suite: EvaluationSuite; runs: EvaluationRun[] };
 
 async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, body === undefined ? { signal } : {
@@ -72,12 +74,19 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [scenario, setScenario] = useState<{ case_id: string; values: ScenarioValues } | null>(null);
+  const [evaluations, setEvaluations] = useState<EvaluationOverview | null>(null);
+  const [evaluationSkillId, setEvaluationSkillId] = useState('line-anomaly-diagnosis');
+  const [evaluationRunId, setEvaluationRunId] = useState('');
+  const [evaluationBusy, setEvaluationBusy] = useState(false);
   const selectedCase = useRef(caseId);
   selectedCase.current = caseId;
 
   useEffect(() => {
     void Promise.all([api<CaseSummary[]>('/api/cases'), api<Capabilities>('/api/agent/capabilities')])
       .then(([list, caps]) => { setCases(list); setCapabilities(caps); if (list[0]) setCaseId(list[0].case_id); })
+      .catch((failure) => setError(String(failure)));
+    void api<EvaluationOverview>('/api/evaluations')
+      .then((overview) => { setEvaluations(overview); setEvaluationRunId(overview.runs[0]?.id ?? ''); })
       .catch((failure) => setError(String(failure)));
   }, []);
   useEffect(() => {
@@ -134,9 +143,21 @@ export function App() {
     } catch (failure) { setError(String(failure)); }
   }
 
+  async function startEvaluation() {
+    if (!evaluations || !capabilities?.online_available || evaluationBusy) return;
+    setEvaluationBusy(true); setError('');
+    try {
+      const run = await api<EvaluationRun>('/api/evaluations', { skill_id: evaluationSkillId });
+      setEvaluations((previous) => previous ? { ...previous, runs: [run, ...previous.runs].slice(0, 10) } : previous);
+      setEvaluationRunId(run.id);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : '评测失败'); }
+    finally { setEvaluationBusy(false); }
+  }
+
   const active = session?.mode === 'replay' ? session.trace.slice(0, frame + 1) : session?.trace ?? [];
   const showResult = session && (session.mode === 'online' || frame >= session.trace.length - 2);
   const selected = cases.find((item) => item.case_id === caseId);
+  const selectedEvaluation = evaluations?.runs.find((item) => item.id === evaluationRunId);
   const originalScenario = snapshot &&
     snapshot.current.daily_output_units !== null &&
     snapshot.current.temperature_c !== null &&
@@ -259,6 +280,31 @@ export function App() {
           <span><b>{item.case_id}</b><small>{new Date(item.created_at).toLocaleString('zh-CN')} · {item.skill.name}</small></span>
           <span className={`mode-tag ${item.mode}`}>{item.mode === 'replay' ? '回放' : '在线'}</span><span className={`risk risk-${item.metrics.risk_level.toLowerCase()}`}>{riskLabel[item.metrics.risk_level]}</span><span>查看 →</span>
         </button>)}</div>}{cursor && <button className="more" onClick={() => void loadMore()}>加载更多历史</button>}
+      </section>
+      <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">07 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>
+        <p className="fineprint">固定题集 v{evaluations?.suite.version ?? '—'} · {evaluations?.suite.cases.length ?? 0} 个合成案例。逐案检查规则一致、必需工具、证据和数据不足时的弃判，并保存每次真实运行。离线回放不计入成绩；此分数不衡量故障根因准确率。</p>
+        <div className="evaluation-controls"><label>评测 Skill <select aria-label="评测 Skill" value={evaluationSkillId} onChange={(event) => setEvaluationSkillId(event.target.value)} disabled={evaluationBusy}>
+          {capabilities?.skills.map((item) => <option key={item.id} value={item.id}>{item.name} · v{item.version}</option>)}
+        </select></label><button onClick={() => void startEvaluation()} disabled={evaluationBusy || !capabilities?.online_available || !evaluations}>
+          {evaluationBusy ? '正在运行五案例…' : '运行五案例在线评测'}</button></div>
+        <p className="fineprint">每次评测会顺序发起五次真实模型诊断，可能需要数分钟并消耗模型 API 额度。{!capabilities?.online_available && '请先在服务器本机配置模型 API Key。'}</p>
+        {evaluationBusy && <p className="evaluation-running" role="status">正在等待五个任务完成，结果返回后统一展示。</p>}
+        {!selectedEvaluation ? <p className="fineprint">尚无在线评测记录；五个离线预录案例仅供演示流程。</p> : <>
+          <div className="evaluation-summary"><strong>{selectedEvaluation.passed_count} / {selectedEvaluation.total_count}</strong><span>通过 Harness 验收</span>
+            <span>模型 {selectedEvaluation.model.provider} / {selectedEvaluation.model.name}</span>
+            <span>Skill {selectedEvaluation.skill.name} v{selectedEvaluation.skill.version}</span>
+            <span>平均耗时 {selectedEvaluation.mean_duration_ms} ms</span></div>
+          <div className="evaluation-toolbar"><label>历史评测 <select aria-label="历史评测" value={evaluationRunId} onChange={(event) => setEvaluationRunId(event.target.value)}>
+            {evaluations?.runs.map((item) => <option key={item.id} value={item.id}>{new Date(item.created_at).toLocaleString('zh-CN')} · {item.skill.name} · {item.passed_count}/{item.total_count}</option>)}
+          </select></label><a href={`/api/evaluations/${selectedEvaluation.id}`} target="_blank" rel="noreferrer">查看评测 JSON ↗</a></div>
+          <div className="evaluation-cases">{selectedEvaluation.cases.map((item) => <article key={item.case_id}>
+            <header><b>{item.case_id}</b><span className={`evaluation-mark ${item.passed ? 'passed' : 'failed'}`}>{item.passed ? '通过' : '未通过'}</span></header>
+            <div className="evaluation-checks"><span>规则 {item.risk_consistent ? '✓' : '×'}</span><span>工具 {item.tools_complete ? '✓' : '×'}</span>
+              <span>证据 {item.evidence_complete ? '✓' : '×'}</span><span>弃判 {item.abstained_when_unknown ? '✓' : '×'}</span></div>
+            <small>{item.duration_ms} ms · 模型 {item.model_calls} 次 · 工具 {item.tool_calls} 次 · {item.stop_reason}</small>
+            <a href={`/api/reports/${item.session_id}`} target="_blank" rel="noreferrer">查看该案例报告 ↗</a>
+          </article>)}</div>
+        </>}
       </section>
       <footer>INDUSTRIAL / PI · 所有数值与维修记录均为合成样例 · 仅供人工辅助诊断</footer>
     </main>

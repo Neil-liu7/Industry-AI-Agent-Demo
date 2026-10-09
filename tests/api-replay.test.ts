@@ -48,6 +48,10 @@ describe('diagnosis API, replay and durable history', () => {
     const capabilities = await (await fetch(base + '/api/agent/capabilities')).json();
     expect(capabilities.online_available).toBe(false);
     expect((await post('/api/diagnose', { case_id: 'IND-001', question: '诊断产线' })).status).toBe(503);
+    const evaluation = await (await fetch(base + '/api/evaluations')).json();
+    expect(evaluation.suite.cases).toHaveLength(5);
+    expect(evaluation.runs).toEqual([]);
+    expect((await post('/api/evaluations', { skill_id: 'line-anomaly-diagnosis' })).status).toBe(503);
   });
 
   it('replays each case without model or MCP calls and persists filtered history', async () => {

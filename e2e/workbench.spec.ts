@@ -5,6 +5,8 @@ test('offline demo, playback controls, history and printable report', async ({ p
   await expect(page.getByRole('heading', { name: '产线异常辅助诊断' })).toBeVisible();
   await expect(page.getByText('在线模型未配置')).toBeVisible();
   await expect(page.getByRole('button', { name: '在线 Pi Agent 诊断' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '运行五案例在线评测' })).toBeDisabled();
+  await expect(page.locator('.evaluation-panel')).toContainText('尚无在线评测记录');
   await page.locator('.case-list').getByRole('button', { name: /IND-002/ }).click();
   await expect(page.locator('.case-list .case-item.selected')).toContainText('正常产线对照');
   await expect(page.getByText('快照 2026-09-22')).toBeVisible();
@@ -134,9 +136,41 @@ test('online button sends the selected case and skill without invented progress'
     } } });
   });
   await page.goto('/');
-  await page.getByRole('combobox', { name: 'Skill' }).selectOption('equipment-priority-patrol');
+  await page.locator('.action-panel').getByRole('combobox', { name: 'Skill' }).selectOption('equipment-priority-patrol');
   await page.getByRole('button', { name: '在线 Pi Agent 诊断' }).click();
   await expect(page.getByText('等待开始演示')).toBeVisible();
   await expect(page.getByText('在线真实执行')).toBeVisible();
   await expect(page.getByRole('heading', { name: '辅助诊断结果' })).toBeVisible();
+});
+
+test('evaluation panel submits a fixed Skill run and displays returned scores', async ({ page }) => {
+  await page.route('**/api/agent/capabilities', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ json: { ...(await response.json()), online_available: true } });
+  });
+  await page.route('**/api/evaluations', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    expect(route.request().postDataJSON()).toEqual({ skill_id: 'equipment-priority-patrol' });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.fulfill({ json: {
+      id: 'evaluation-test', created_at: '2026-09-22T00:00:00.000Z', data_type: 'synthetic',
+      suite_id: 'industrial-synthetic-v1', suite_version: '1.0.0',
+      skill: { id: 'equipment-priority-patrol', version: '1.0.0', name: '设备优先级巡检' },
+      model: { provider: 'openai', name: 'fake-test' }, passed_count: 4, total_count: 5,
+      mean_duration_ms: 123, cases: ['IND-001', 'IND-002', 'IND-003', 'IND-004', 'IND-005'].map((id, index) => ({
+        case_id: id, expected_risk: index === 3 ? 'UNKNOWN' : 'MEDIUM', session_id: `session-${index}`,
+        passed: index !== 3, status: index === 3 ? 'failed' : 'completed',
+        stop_reason: index === 3 ? 'MODEL_ERROR' : 'COMPLETED', risk_consistent: index !== 3,
+        tools_complete: true, evidence_complete: index !== 3, abstained_when_unknown: true,
+        duration_ms: 123, model_calls: 2, tool_calls: 2, token_usage: null,
+      })),
+    } });
+  });
+  await page.goto('/');
+  await page.getByRole('combobox', { name: '评测 Skill' }).selectOption('equipment-priority-patrol');
+  await page.getByRole('button', { name: '运行五案例在线评测' }).click();
+  await expect(page.getByRole('status')).toContainText('正在等待五个任务完成');
+  await expect(page.locator('.evaluation-summary')).toContainText('4 / 5');
+  await expect(page.locator('.evaluation-cases article')).toHaveCount(5);
+  await expect(page.locator('.evaluation-cases article').filter({ hasText: 'IND-004' })).toContainText('未通过');
 });

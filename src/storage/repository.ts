@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { caseSchema, type IndustrialCase } from '../domain/cases';
+import type { EvaluationRun } from '../evaluation';
 import type { RunResult } from '../harness/run';
 
 export function databasePath() {
@@ -26,6 +27,10 @@ export class Repository {
         status TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS sessions_filter ON sessions(case_id, mode, created_at DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS evaluation_runs (
+        id TEXT PRIMARY KEY, created_at TEXT NOT NULL, payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS evaluation_runs_order ON evaluation_runs(created_at DESC, id DESC);
     `);
   }
 
@@ -72,6 +77,22 @@ export class Repository {
   getSession(id: string): RunResult | null {
     const row = this.db.prepare('SELECT payload FROM sessions WHERE id = ?').get(id);
     return row ? JSON.parse(String(row.payload)) as RunResult : null;
+  }
+
+  saveEvaluation(run: EvaluationRun) {
+    this.db.prepare('INSERT INTO evaluation_runs VALUES (?, ?, ?)').run(
+      run.id, run.created_at, JSON.stringify(run));
+  }
+
+  listEvaluations(limit = 10): EvaluationRun[] {
+    return this.db.prepare('SELECT payload FROM evaluation_runs ORDER BY created_at DESC, id DESC LIMIT ?')
+      .all(Math.max(1, Math.min(limit, 50)))
+      .map((row) => JSON.parse(String(row.payload)) as EvaluationRun);
+  }
+
+  getEvaluation(id: string): EvaluationRun | null {
+    const row = this.db.prepare('SELECT payload FROM evaluation_runs WHERE id = ?').get(id);
+    return row ? JSON.parse(String(row.payload)) as EvaluationRun : null;
   }
 
   listSessions(filters: { case_id?: string; mode?: 'online' | 'replay'; limit?: number; cursor?: string }) {

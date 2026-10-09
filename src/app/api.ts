@@ -1,6 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { calculateMetrics, evidenceIds } from '../domain/cases';
+import { loadEvaluationSuite, runEvaluation } from '../evaluation';
 import { runDiagnosis, type OnlineEngine } from '../harness/run';
 import { createReplay } from '../harness/replay';
 import { loadSkills } from '../skills';
@@ -13,9 +14,12 @@ const diagnosisInput = z.object({
   skill_id: z.string().optional(),
 }).strict();
 const replayInput = z.object({ case_id: z.string().min(1) }).strict();
+const evaluationInput = z.object({ skill_id: z.string().min(1) }).strict();
 
 export function createApp(repository: Repository, engineFactory: () => OnlineEngine | null = onlineEngineFromEnv) {
   const skills = loadSkills();
+  const evaluationSuite = loadEvaluationSuite(repository);
+  let evaluationRunning = false;
   const app = express();
   app.disable('x-powered-by');
   app.use(express.json({ limit: '16kb' }));
@@ -68,6 +72,30 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     } catch (error) {
       return res.status(400).json({ error: error instanceof Error ? error.message : 'Replay unavailable' });
     }
+  });
+  app.get('/api/evaluations', (_req, res) => res.json({
+    suite: evaluationSuite, runs: repository.listEvaluations(),
+  }));
+  app.get('/api/evaluations/:id', (req, res) => {
+    const run = repository.getEvaluation(req.params.id);
+    return run ? res.json(run) : res.status(404).json({ error: 'Evaluation not found' });
+  });
+  app.post('/api/evaluations', async (req, res) => {
+    const parsed = evaluationInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid evaluation request' });
+    const skill = skills.find((item) => item.id === parsed.data.skill_id);
+    if (!skill) return res.status(400).json({ error: 'Unknown skill' });
+    if (evaluationRunning) return res.status(409).json({ error: 'Evaluation already running' });
+    const engine = engineFactory();
+    if (!engine) return res.status(503).json({ error: 'Online model is not configured' });
+    evaluationRunning = true;
+    try {
+      const run = await runEvaluation(repository, evaluationSuite, skill, engine);
+      repository.saveEvaluation(run);
+      return res.json(run);
+    } catch {
+      return res.status(500).json({ error: 'Evaluation failed' });
+    } finally { evaluationRunning = false; }
   });
   app.get('/api/sessions', (req, res) => {
     const mode = req.query.mode;
