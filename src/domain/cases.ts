@@ -46,13 +46,19 @@ function defectRate(output: number | null, defects: number | null): number | nul
 }
 
 export function calculateMetrics(data: IndustrialCase): CaseMetrics {
+  if (data.baseline_date >= data.snapshot_date) {
+    return {
+      output_change_pct: null, baseline_defect_rate_pct: null, current_defect_rate_pct: null,
+      defect_rate_change_pp: null, temperature_change_pct: null, vibration_change_pct: null,
+      risk_level: 'UNKNOWN',
+    };
+  }
   const output = percentChange(data.baseline.daily_output_units, data.current.daily_output_units);
   const baselineDefects = defectRate(data.baseline.daily_output_units, data.baseline.defect_units);
   const currentDefects = defectRate(data.current.daily_output_units, data.current.defect_units);
   const temperature = percentChange(data.baseline.temperature_c, data.current.temperature_c);
   const vibration = percentChange(data.baseline.vibration_mm_s, data.current.vibration_mm_s);
-  const comparable = data.baseline_date < data.snapshot_date;
-  const complete = comparable && [output, baselineDefects, currentDefects, temperature, vibration].every((value) => value !== null);
+  const complete = [output, baselineDefects, currentDefects, temperature, vibration].every((value) => value !== null);
   let risk: RiskLevel = 'UNKNOWN';
   if (complete) {
     if (output! <= -10 && (temperature! >= 20 || vibration! >= 20)) risk = 'HIGH';

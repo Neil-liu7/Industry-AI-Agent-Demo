@@ -38,5 +38,11 @@ describe('synthetic cases and deterministic metrics', () => {
       const parsed = caseSchema.parse(data);
       expect(calculateMetrics(parsed).risk_level).toBe('UNKNOWN');
     }
+    const invalidWindow = caseSchema.parse({ ...base, baseline_date: base.snapshot_date });
+    expect(calculateMetrics(invalidWindow)).toEqual({
+      output_change_pct: null, baseline_defect_rate_pct: null, current_defect_rate_pct: null,
+      defect_rate_change_pp: null, temperature_change_pct: null, vibration_change_pct: null,
+      risk_level: 'UNKNOWN',
+    });
   });
 });
