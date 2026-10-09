@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadSkills, selectSkill } from '../src/skills';
 import { MaintenanceClient } from '../src/mcp/client';
@@ -57,5 +57,19 @@ describe('read-only stdio MCP', () => {
     expect(() => readonly.seed()).toThrow();
     readonly.close();
     expect(() => new Repository(join(dir, 'absent.sqlite'), { readOnly: true })).toThrow();
+  });
+
+  it('times out a live stdio MCP request and rejects forged output', async () => {
+    const fixture = resolve('tests/fixtures/mcp-behavior.ts');
+    const hanging = new MaintenanceClient(['--import', 'tsx', fixture, 'hang']);
+    await hanging.connect();
+    await expect(hanging.getHistory('IND-001', 'EQ-003', 30)).rejects.toThrow();
+    await hanging.close();
+    expect(hanging.childPid).toBeNull();
+
+    const forged = new MaintenanceClient(['--import', 'tsx', fixture, 'forged']);
+    await forged.connect();
+    await expect(forged.getHistory('IND-001', 'EQ-003')).rejects.toThrow('mismatched evidence');
+    await forged.close();
   });
 });

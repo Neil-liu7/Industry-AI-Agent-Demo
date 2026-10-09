@@ -106,6 +106,7 @@ export async function runDiagnosis(
   let client = options.maintenanceClient;
   let ownsClient = false;
   let stopReason: string | null = null;
+  let timedOut = false;
   const retries = new Map<string, number>();
   const completedSkillSteps = new Set<string>();
   const stepForTool: Record<ToolName, string> = {
@@ -114,6 +115,7 @@ export async function runDiagnosis(
     get_maintenance_history: '读取维修记录',
   };
   const addEvidence = (name: ToolName, source: Source, id: string, payload: Record<string, unknown>) => {
+    if (stopReason) throw new Error(stopReason);
     evidence.push({ id, source, tool: name, data: payload });
     called.add(name);
     return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
@@ -205,8 +207,8 @@ export async function runDiagnosis(
       getApiKey: engine.getApiKey,
       toolExecution: 'sequential',
       prepareRequest: () => {
-        if (result.model_calls >= 4) {
-          stopReason = 'MODEL_BUDGET';
+        if (stopReason || result.model_calls >= 4) {
+          if (!stopReason) stopReason = 'MODEL_BUDGET';
           agent.abort();
         } else {
           result.model_calls++;
@@ -222,6 +224,7 @@ export async function runDiagnosis(
       finishTurn: () => stopReason ? { action: 'end' } : undefined,
     });
     agent.subscribe((event: AgentEvent) => {
+      if (timedOut) return;
       if (event.type === 'tool_execution_start') {
         trace.push({ ...traceContext(), kind: 'tool', tool_call_id: event.toolCallId, name: event.toolName,
           source: sourceOf(event.toolName), status: 'running', started_at: new Date().toISOString(),
@@ -247,8 +250,15 @@ export async function runDiagnosis(
         if (typeof usage === 'number' && usage > 0) result.token_usage = (result.token_usage ?? 0) + usage;
       }
     });
-    const timer = setTimeout(() => { stopReason = 'TASK_TIMEOUT'; agent.abort(); }, options.timeoutMs ?? 30000);
-    try { await agent.prompt(input.question); } finally { clearTimeout(timer); }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        stopReason = 'TASK_TIMEOUT'; timedOut = true; agent.abort();
+        reject(new Error('TASK_TIMEOUT'));
+      }, options.timeoutMs ?? 30000);
+    });
+    try { await Promise.race([agent.prompt(input.question), deadline]); }
+    finally { clearTimeout(timer); }
     if (stopReason) throw new Error(stopReason);
     if (agent.state.errorMessage) throw new Error('MODEL_ERROR');
     if (!skill.required_tools.every((name) => called.has(name))) throw new Error('REQUIRED_TOOLS_MISSING');

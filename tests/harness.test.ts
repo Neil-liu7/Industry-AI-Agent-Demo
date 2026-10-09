@@ -1,10 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { runDiagnosis } from '../src/harness/run';
+import { runDiagnosis, type ToolTrace } from '../src/harness/run';
 import { Repository } from '../src/storage/repository';
 import { fakeMessage, fakeModel, scriptedStream } from './helpers/fake-model';
+import { MaintenanceClient } from '../src/mcp/client';
+import { createAssistantMessageEventStream } from '@earendil-works/pi-ai';
 
 const call = (id: string, name: string, args: Record<string, string>) =>
   ({ type: 'toolCall' as const, id, name, arguments: args });
@@ -152,6 +154,52 @@ describe('industrial Pi harness', () => {
     expect(result.status).toBe('failed');
     expect(result.stop_reason).toBe('TOOL_ERROR');
     expect(result.evidence.map((item) => item.source)).toEqual(['local', 'local']);
+  });
+
+  it('retries one recoverable MCP disconnect and records the retry', async () => {
+    const original = MaintenanceClient.prototype.getHistory;
+    const spy = vi.spyOn(MaintenanceClient.prototype, 'getHistory')
+      .mockImplementation(function (this: MaintenanceClient, caseId, equipmentId, timeout) {
+        return original.call(this, caseId, equipmentId, timeout);
+      }).mockRejectedValueOnce(new Error('Connection closed'));
+    try {
+      const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
+        model: fakeModel, streamFn: scriptedStream([fakeMessage(fullCalls, 'toolUse'),
+          fakeMessage([{ type: 'text', text: report() }], 'stop')]),
+      });
+      expect(result.status).toBe('completed');
+      expect(result.trace.find((item): item is ToolTrace =>
+        item.kind === 'tool' && item.name === 'get_maintenance_history')?.retry_count).toBe(1);
+    } finally { spy.mockRestore(); }
+  });
+
+  it('terminates a stalled model request at the task deadline', async () => {
+    const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
+      model: fakeModel, streamFn: () => createAssistantMessageEventStream(),
+    }, { timeoutMs: 30 });
+    expect(result.status).toBe('failed');
+    expect(result.stop_reason).toBe('TASK_TIMEOUT');
+    expect(result.trace.at(-1)?.stop_reason).toBe('TASK_TIMEOUT');
+  });
+
+  it('ignores a model response that arrives after the task deadline', async () => {
+    const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
+      model: fakeModel,
+      streamFn: () => {
+        const stream = createAssistantMessageEventStream();
+        setTimeout(() => {
+          const message = fakeMessage(fullCalls, 'toolUse');
+          stream.push({ type: 'start', partial: message });
+          stream.push({ type: 'done', reason: 'toolUse', message });
+        }, 90);
+        return stream;
+      },
+    }, { timeoutMs: 20 });
+    const traceLength = result.trace.length;
+    await new Promise((resolve) => setTimeout(resolve, 130));
+    expect(result.stop_reason).toBe('TASK_TIMEOUT');
+    expect(result.evidence).toHaveLength(0);
+    expect(result.trace).toHaveLength(traceLength);
   });
 
   it('rejects a model recommendation that follows an unsafe tool instruction', async () => {
