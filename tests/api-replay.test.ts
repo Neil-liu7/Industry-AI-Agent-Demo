@@ -40,6 +40,7 @@ describe('diagnosis API, replay and durable history', () => {
     expect(cases.map((item: { case_id: string }) => item.case_id)).toEqual(['IND-001', 'IND-002', 'IND-003']);
     const snapshot = await (await fetch(base + '/api/cases/IND-003/snapshot')).json();
     expect(snapshot.metrics.risk_level).toBe('MEDIUM');
+    expect(snapshot).not.toHaveProperty('maintenance_record');
     const capabilities = await (await fetch(base + '/api/agent/capabilities')).json();
     expect(capabilities.online_available).toBe(false);
     expect((await post('/api/diagnose', { case_id: 'IND-001', question: '诊断产线' })).status).toBe(503);
@@ -85,6 +86,9 @@ describe('diagnosis API, replay and durable history', () => {
     expect((await fetch(base + '/api/sessions?cursor=bad')).status).toBe(400);
     const session = repository.listSessions({ case_id: 'IND-001' }).items[0];
     expect(renderReport({ ...session, question: '<script>alert(1)</script>' })).not.toContain('<script>');
+    const unknown = renderReport({ ...session, metrics: { ...session.metrics,
+      output_change_pct: null, temperature_change_pct: null, vibration_change_pct: null, risk_level: 'UNKNOWN' } });
+    expect(unknown).toContain('产量变化 未知 · 温度偏移 未知 · 振动偏移 未知');
   });
 
   it('persists an online Pi run with real local and MCP tool routes', async () => {

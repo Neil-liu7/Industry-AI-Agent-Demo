@@ -28,7 +28,8 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
   app.get('/api/cases/:case_id/snapshot', (req, res) => {
     const data = repository.getCase(req.params.case_id);
     if (!data) return res.status(404).json({ error: 'Case not found' });
-    return res.json({ ...data, metrics: calculateMetrics(data), evidence_ids: evidenceIds(data) });
+    const { maintenance_record: _maintenance, ...snapshot } = data;
+    return res.json({ ...snapshot, metrics: calculateMetrics(data), evidence_ids: evidenceIds(data) });
   });
   app.get('/api/agent/capabilities', (_req, res) => res.json({
     online_available: engineFactory() !== null, replay_available: true,

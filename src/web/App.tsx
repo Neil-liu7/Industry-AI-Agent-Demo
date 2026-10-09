@@ -3,7 +3,7 @@ import type { IndustrialCase, CaseMetrics, RiskLevel } from '../domain/cases';
 import type { RunResult, ToolTrace } from '../harness/run';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic'; risk_level: RiskLevel; line_id: string; equipment_id: string };
-type Snapshot = IndustrialCase & { metrics: CaseMetrics };
+type Snapshot = Omit<IndustrialCase, 'maintenance_record'> & { metrics: CaseMetrics };
 type SkillSummary = { id: string; name: string; version: string; purpose: string };
 type Capabilities = { online_available: boolean; replay_available: boolean; skills: SkillSummary[]; limits: Record<string, number> };
 type SessionPage = { items: RunResult[]; next_cursor: string | null };
