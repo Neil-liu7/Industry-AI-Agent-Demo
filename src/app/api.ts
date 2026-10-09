@@ -8,6 +8,7 @@ import { loadSkills } from '../skills';
 import { Repository } from '../storage/repository';
 import { onlineEngineFromEnv } from './model';
 import { renderReport } from './report';
+import { runSafetyScenario, safetyScenarios } from '../safety-lab';
 
 const diagnosisInput = z.object({
   case_id: z.string().min(1), question: z.string().trim().min(1).max(2000),
@@ -15,6 +16,9 @@ const diagnosisInput = z.object({
 }).strict();
 const replayInput = z.object({ case_id: z.string().min(1) }).strict();
 const evaluationInput = z.object({ skill_id: z.string().min(1) }).strict();
+const safetyInput = z.object({
+  scenario_id: z.enum(['control-request', 'cross-case', 'forged-evidence', 'mcp-timeout']),
+}).strict();
 
 export function createApp(repository: Repository, engineFactory: () => OnlineEngine | null = onlineEngineFromEnv) {
   const skills = loadSkills();
@@ -96,6 +100,14 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     } catch {
       return res.status(500).json({ error: 'Evaluation failed' });
     } finally { evaluationRunning = false; }
+  });
+  app.get('/api/safety-lab/scenarios', (_req, res) => res.json({
+    execution: 'scripted_fake_model', data_type: 'synthetic', scenarios: safetyScenarios,
+  }));
+  app.post('/api/safety-lab', async (req, res) => {
+    const parsed = safetyInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid safety scenario' });
+    return res.json(await runSafetyScenario(repository, parsed.data.scenario_id));
   });
   app.get('/api/sessions', (req, res) => {
     const mode = req.query.mode;

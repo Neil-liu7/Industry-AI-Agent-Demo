@@ -52,6 +52,13 @@ describe('diagnosis API, replay and durable history', () => {
     expect(evaluation.suite.cases).toHaveLength(5);
     expect(evaluation.runs).toEqual([]);
     expect((await post('/api/evaluations', { skill_id: 'line-anomaly-diagnosis' })).status).toBe(503);
+    const safety = await (await fetch(base + '/api/safety-lab/scenarios')).json();
+    expect(safety.execution).toBe('scripted_fake_model');
+    expect(safety.scenarios).toHaveLength(4);
+    expect((await post('/api/safety-lab', { scenario_id: 'unknown' })).status).toBe(400);
+    const control = await (await post('/api/safety-lab', { scenario_id: 'control-request' })).json();
+    expect(control).toMatchObject({ passed: true, observed_stop_reason: 'POLICY_BLOCKED', model_calls: 0 });
+    expect(repository.listSessions({}).items).toEqual([]);
   });
 
   it('replays each case without model or MCP calls and persists filtered history', async () => {

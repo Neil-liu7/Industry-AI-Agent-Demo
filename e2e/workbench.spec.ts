@@ -174,3 +174,17 @@ test('evaluation panel submits a fixed Skill run and displays returned scores', 
   await expect(page.locator('.evaluation-cases article')).toHaveCount(5);
   await expect(page.locator('.evaluation-cases article').filter({ hasText: 'IND-004' })).toContainText('未通过');
 });
+
+test('safety lab runs without a model key and keeps the result separate from diagnosis history', async ({ page }) => {
+  await page.goto('/');
+  const before = await (await page.request.get('/api/sessions?case_id=IND-001')).json();
+  const panel = page.locator('.safety-panel');
+  await expect(panel.locator('.safety-scenarios article')).toHaveCount(4);
+  await expect(page.getByRole('button', { name: '运行五案例在线评测' })).toBeDisabled();
+  await panel.locator('article').filter({ hasText: '越权控制请求' }).getByRole('button', { name: '运行场景' }).click();
+  await expect(panel.getByRole('status')).toContainText('符合预期');
+  await expect(panel.getByRole('status')).toContainText('模型调用：0');
+  await expect(panel.getByRole('status')).toContainText('实际停止：POLICY_BLOCKED');
+  const after = await (await page.request.get('/api/sessions?case_id=IND-001')).json();
+  expect(after.items.map((item: { id: string }) => item.id)).toEqual(before.items.map((item: { id: string }) => item.id));
+});

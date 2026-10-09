@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { calculateMetrics, RISK_THRESHOLDS, type IndustrialCase, type CaseMetrics, type RiskLevel } from '../domain/cases';
 import type { EvaluationRun, EvaluationSuite } from '../evaluation';
 import type { RunResult, ToolTrace } from '../harness/run';
+import type { SafetyLabResult, SafetyScenario, SafetyScenarioId } from '../safety-lab';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic';
   risk_level: RiskLevel; line_id: string; equipment_id: string; metrics: CaseMetrics };
@@ -11,6 +12,7 @@ type Capabilities = { online_available: boolean; replay_available: boolean; skil
 type SessionPage = { items: RunResult[]; next_cursor: string | null };
 type ScenarioValues = { daily_output_units: number; temperature_c: number; vibration_mm_s: number };
 type EvaluationOverview = { suite: EvaluationSuite; runs: EvaluationRun[] };
+type SafetyLabOverview = { execution: 'scripted_fake_model'; data_type: 'synthetic'; scenarios: SafetyScenario[] };
 
 async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, body === undefined ? { signal } : {
@@ -78,6 +80,9 @@ export function App() {
   const [evaluationSkillId, setEvaluationSkillId] = useState('line-anomaly-diagnosis');
   const [evaluationRunId, setEvaluationRunId] = useState('');
   const [evaluationBusy, setEvaluationBusy] = useState(false);
+  const [safetyLab, setSafetyLab] = useState<SafetyLabOverview | null>(null);
+  const [safetyResult, setSafetyResult] = useState<SafetyLabResult | null>(null);
+  const [safetyBusy, setSafetyBusy] = useState<SafetyScenarioId | null>(null);
   const selectedCase = useRef(caseId);
   selectedCase.current = caseId;
 
@@ -88,6 +93,8 @@ export function App() {
     void api<EvaluationOverview>('/api/evaluations')
       .then((overview) => { setEvaluations(overview); setEvaluationRunId(overview.runs[0]?.id ?? ''); })
       .catch((failure) => setError(String(failure)));
+    void api<SafetyLabOverview>('/api/safety-lab/scenarios')
+      .then(setSafetyLab).catch((failure) => setError(String(failure)));
   }, []);
   useEffect(() => {
     if (!caseId) return;
@@ -152,6 +159,14 @@ export function App() {
       setEvaluationRunId(run.id);
     } catch (failure) { setError(failure instanceof Error ? failure.message : '评测失败'); }
     finally { setEvaluationBusy(false); }
+  }
+
+  async function runSafety(id: SafetyScenarioId) {
+    if (safetyBusy) return;
+    setSafetyBusy(id); setSafetyResult(null); setError('');
+    try { setSafetyResult(await api<SafetyLabResult>('/api/safety-lab', { scenario_id: id })); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : '安全实验失败'); }
+    finally { setSafetyBusy(null); }
   }
 
   const active = session?.mode === 'replay' ? session.trace.slice(0, frame + 1) : session?.trace ?? [];
@@ -305,6 +320,23 @@ export function App() {
             <a href={`/api/reports/${item.session_id}`} target="_blank" rel="noreferrer">查看该案例报告 ↗</a>
           </article>)}</div>
         </>}
+      </section>
+      <section className="panel safety-panel"><div className="panel-title"><span className="eyebrow">08 / SAFETY LAB</span><h2>安全实验台</h2></div>
+        <p className="fineprint">四个固定合成场景使用脚本化假模型触发真实 Harness 边界，无需模型 API Key。结果不写入诊断历史，也不计入在线评测；其中维修工具超时使用模拟挂起的 MCP 客户端。</p>
+        <div className="safety-scenarios">{safetyLab?.scenarios.map((item) => <article key={item.id}>
+          <div><b>{item.name}</b><p>{item.description}</p></div>
+          <button onClick={() => void runSafety(item.id)} disabled={safetyBusy !== null}>{safetyBusy === item.id ? '运行中…' : '运行场景'}</button>
+        </article>)}</div>
+        {safetyResult && <div className="safety-result" role="status"><header><b>{safetyResult.name}</b>
+          <span className={`evaluation-mark ${safetyResult.passed ? 'passed' : 'failed'}`}>{safetyResult.passed ? '符合预期' : '与预期不符'}</span></header>
+          <div className="safety-facts"><span>预期停止：{safetyResult.expected_stop_reason}</span><span>实际停止：{safetyResult.observed_stop_reason}</span>
+            <span>模型调用：{safetyResult.model_calls}</span><span>工具调用：{safetyResult.tool_calls}</span><span>可信证据：{safetyResult.evidence_ids.length}</span></div>
+          <details><summary>查看执行轨迹与证据 ID</summary><ol>{safetyResult.trace.map((item, index) => <li key={index}>
+            {item.kind === 'tool' ? `${item.name} · ${item.source.toUpperCase()} · ${item.status}` : `${item.name} · ${item.status}`}
+            {item.kind === 'tool' && item.evidence_id ? ` · ${item.evidence_id}` : ''}
+            {item.kind === 'step' && item.detail ? ` · ${item.detail}` : ''}
+          </li>)}</ol><p>证据：{safetyResult.evidence_ids.join('、') || '无'}</p></details>
+        </div>}
       </section>
       <footer>INDUSTRIAL / PI · 所有数值与维修记录均为合成样例 · 仅供人工辅助诊断</footer>
     </main>
