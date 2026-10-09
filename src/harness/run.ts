@@ -65,7 +65,7 @@ function summarizeArgs(args: unknown): Record<string, unknown> {
 }
 
 function rejectionReason(question: string): string | null {
-  if (/启动|停止|关闭|写入|修改设定|控制设备|提交工单|创建工单|运行脚本|任意代码|执行命令|shell|bash|PLC|SCADA|MES/i.test(question)) {
+  if (/启动|停止|关闭|写入|修改设定|控制设备|提交工单|创建工单|运行脚本|任意代码|执行命令|shell|bash|PLC|SCADA|MES|run code|execute code|arbitrary code|run command|execute command|start equipment|stop equipment|submit work order|create work order/i.test(question)) {
     return '设备控制、写入或任意命令请求不在只读演示范围';
   }
   return null;

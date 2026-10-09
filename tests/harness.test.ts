@@ -273,7 +273,7 @@ describe('industrial Pi harness', () => {
   });
 
   it('rejects arbitrary code and work-order creation requests', async () => {
-    for (const question of ['运行脚本分析设备', '自动创建工单']) {
+    for (const question of ['运行脚本分析设备', '自动创建工单', 'execute arbitrary code', 'start equipment']) {
       const result = await runDiagnosis(repository, { case_id: 'IND-001', question }, {
         model: fakeModel, streamFn: scriptedStream([]),
       });
