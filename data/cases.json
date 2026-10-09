@@ -1,0 +1,38 @@
+[
+  {
+    "case_id": "IND-001",
+    "title": "3 号产线产量下降与设备升温",
+    "snapshot_date": "2026-09-22",
+    "baseline_date": "2026-09-15",
+    "data_type": "synthetic",
+    "line_id": "LINE-03",
+    "equipment_id": "EQ-003",
+    "baseline": { "daily_output_units": 1000, "defect_units": 20, "temperature_c": 70, "vibration_mm_s": 6 },
+    "current": { "daily_output_units": 850, "defect_units": 30, "temperature_c": 87.5, "vibration_mm_s": 8.1 },
+    "maintenance_record": { "record_id": "MAINT-003", "date": "2026-08-18", "summary": "冷却回路曾出现流量不足，检修后恢复" }
+  },
+  {
+    "case_id": "IND-002",
+    "title": "正常产线对照",
+    "snapshot_date": "2026-09-22",
+    "baseline_date": "2026-09-15",
+    "data_type": "synthetic",
+    "line_id": "LINE-02",
+    "equipment_id": "EQ-002",
+    "baseline": { "daily_output_units": 1000, "defect_units": 20, "temperature_c": 70, "vibration_mm_s": 6 },
+    "current": { "daily_output_units": 1020, "defect_units": 20, "temperature_c": 71, "vibration_mm_s": 6.1 },
+    "maintenance_record": { "record_id": "MAINT-002", "date": "2026-08-10", "summary": "例行巡检，未发现异常" }
+  },
+  {
+    "case_id": "IND-003",
+    "title": "单指标温度异常",
+    "snapshot_date": "2026-09-22",
+    "baseline_date": "2026-09-15",
+    "data_type": "synthetic",
+    "line_id": "LINE-01",
+    "equipment_id": "EQ-001",
+    "baseline": { "daily_output_units": 1000, "defect_units": 20, "temperature_c": 70, "vibration_mm_s": 6 },
+    "current": { "daily_output_units": 1000, "defect_units": 20, "temperature_c": 86, "vibration_mm_s": 6 },
+    "maintenance_record": { "record_id": "MAINT-001", "date": "2026-08-05", "summary": "温度传感器校准" }
+  }
+]
