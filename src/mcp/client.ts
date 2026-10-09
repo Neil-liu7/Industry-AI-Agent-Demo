@@ -13,7 +13,7 @@ export class MaintenanceClient {
   private transport: StdioClientTransport;
 
   constructor(serverArgs = process.env.NODE_ENV === 'production'
-    ? [resolve('dist/mcp-server.js')] : ['--import', 'tsx', resolve('src/mcp/server.ts')]) {
+    ? [resolve('dist/mcp/server.js')] : ['--import', 'tsx', resolve('src/mcp/server.ts')]) {
     this.transport = new StdioClientTransport({
       command: process.execPath, args: serverArgs, cwd: process.cwd(), stderr: 'inherit',
       env: { PATH: process.env.PATH ?? '', DATA_DIR: resolve(process.env.DATA_DIR ?? 'data') },

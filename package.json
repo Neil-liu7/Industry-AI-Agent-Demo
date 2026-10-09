@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.19.0" },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "scripts": {
     "dev": "tsx src/server.ts",
     "start": "node dist/server.js",
     "test": "vitest run --config vitest.config.ts",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "build": "vite build && esbuild src/server.ts src/mcp/server.ts --bundle --platform=node --format=esm --packages=external --outdir=dist",
     "reset-data": "tsx src/storage/reset.ts"
@@ -22,6 +25,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.0",
     "@types/express": "5.0.6",
     "@types/node": "26.6.4",
     "@types/react": "19.3.0",
