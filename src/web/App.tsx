@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { IndustrialCase, CaseMetrics, RiskLevel } from '../domain/cases';
 import type { RunResult, ToolTrace } from '../harness/run';
 
@@ -8,9 +8,9 @@ type SkillSummary = { id: string; name: string; version: string; purpose: string
 type Capabilities = { online_available: boolean; replay_available: boolean; skills: SkillSummary[]; limits: Record<string, number> };
 type SessionPage = { items: RunResult[]; next_cursor: string | null };
 
-async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? undefined : {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, body === undefined ? { signal } : {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error ?? '请求失败');
@@ -67,6 +67,8 @@ export function App() {
   const [playing, setPlaying] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const selectedCase = useRef(caseId);
+  selectedCase.current = caseId;
 
   useEffect(() => {
     void Promise.all([api<CaseSummary[]>('/api/cases'), api<Capabilities>('/api/agent/capabilities')])
@@ -76,14 +78,24 @@ export function App() {
   useEffect(() => {
     if (!caseId) return;
     setSession(null); setPlaying(false);
-    void api<Snapshot>(`/api/cases/${caseId}/snapshot`).then(setSnapshot).catch((failure) => setError(String(failure)));
+    setSnapshot(null);
+    const controller = new AbortController();
+    void api<Snapshot>(`/api/cases/${caseId}/snapshot`, undefined, controller.signal)
+      .then(setSnapshot).catch((failure) => {
+        if (failure?.name !== 'AbortError') setError(String(failure));
+      });
+    return () => controller.abort();
   }, [caseId]);
   useEffect(() => {
     if (!caseId) return;
+    setHistory([]); setCursor(null);
+    const controller = new AbortController();
     const query = new URLSearchParams({ case_id: caseId, limit: '8' });
     if (historyMode) query.set('mode', historyMode);
-    void api<SessionPage>(`/api/sessions?${query}`).then((page) => { setHistory(page.items); setCursor(page.next_cursor); })
-      .catch((failure) => setError(String(failure)));
+    void api<SessionPage>(`/api/sessions?${query}`, undefined, controller.signal)
+      .then((page) => { setHistory(page.items); setCursor(page.next_cursor); })
+      .catch((failure) => { if (failure?.name !== 'AbortError') setError(String(failure)); });
+    return () => controller.abort();
   }, [caseId, historyMode]);
   useEffect(() => {
     if (!session || session.mode !== 'replay' || !playing) return;
@@ -94,12 +106,15 @@ export function App() {
 
   async function run(mode: 'online' | 'replay') {
     if (!caseId || busy) return;
+    const requestedCase = caseId;
     setBusy(true); setError('');
     try {
       const result = await api<RunResult>(mode === 'online' ? '/api/diagnose' : '/api/replay',
         mode === 'online' ? { case_id: caseId, question, ...(skillId ? { skill_id: skillId } : {}) } : { case_id: caseId });
-      setSession(result); setFrame(0); setPlaying(mode === 'replay');
-      setHistory((previous) => [result, ...previous.filter((item) => item.id !== result.id)].slice(0, 8));
+      if (selectedCase.current === requestedCase) {
+        setSession(result); setFrame(0); setPlaying(mode === 'replay');
+        setHistory((previous) => [result, ...previous.filter((item) => item.id !== result.id)].slice(0, 8));
+      }
     } catch (failure) { setError(failure instanceof Error ? failure.message : '请求失败'); }
     finally { setBusy(false); }
   }
@@ -128,7 +143,7 @@ export function App() {
       <div className="columns">
         <section className="left-column">
           <div className="panel case-panel"><div className="panel-title"><span className="eyebrow">01 / CASE CONTEXT</span><h2>选择演示案例</h2></div>
-            <div className="case-list">{cases.map((item) => <button key={item.case_id} className={`case-item ${caseId === item.case_id ? 'selected' : ''}`} onClick={() => setCaseId(item.case_id)}>
+            <div className="case-list">{cases.map((item) => <button key={item.case_id} className={`case-item ${caseId === item.case_id ? 'selected' : ''}`} disabled={busy} onClick={() => setCaseId(item.case_id)}>
               <span><b>{item.case_id}</b><small>{item.title}</small></span><span className={`risk risk-${item.risk_level.toLowerCase()}`}>{riskLabel[item.risk_level]}</span>
             </button>)}</div>
             {snapshot && <div className="case-meta"><span>产线 {snapshot.line_id}</span><span>设备 {snapshot.equipment_id}</span><span>快照 {snapshot.snapshot_date}</span><span>合成数据</span></div>}

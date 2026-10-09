@@ -34,3 +34,43 @@ test('offline demo, playback controls, history and printable report', async ({ p
   await page.getByRole('button', { name: /IND-002.*回放/ }).click();
   await expect(page.getByRole('heading', { name: '辅助诊断结果' })).toBeVisible();
 });
+
+test('all three cases keep chart, diagnosis, evidence and report aligned', async ({ page, context }) => {
+  await page.goto('/');
+  for (const item of [
+    { id: 'IND-001', line: 'LINE-03', output: 850, risk: 'HIGH', record: 'MAINT-003' },
+    { id: 'IND-002', line: 'LINE-02', output: 1020, risk: 'LOW', record: 'MAINT-002' },
+    { id: 'IND-003', line: 'LINE-01', output: 1000, risk: 'MEDIUM', record: 'MAINT-001' },
+  ]) {
+    await page.locator('.case-list').getByRole('button', { name: new RegExp(item.id) }).click();
+    await expect(page.locator('.case-meta')).toContainText(item.line);
+    await expect(page.getByRole('img', { name: `日产量基线 1000，当前 ${item.output}` })).toBeVisible();
+    await page.getByRole('button', { name: /一键演示/ }).click();
+    await page.getByRole('button', { name: '暂停' }).click();
+    for (let index = 0; index < 6; index++) await page.getByRole('button', { name: '下一步' }).click();
+    await expect(page.getByRole('heading', { name: '辅助诊断结果' })).toBeVisible();
+    await expect(page.getByText(`${item.id}:maintenance:${item.record}`, { exact: true }).first()).toBeVisible();
+    const [report] = await Promise.all([
+      context.waitForEvent('page'), page.getByRole('link', { name: '打开可打印报告' }).click(),
+    ]);
+    await report.waitForLoadState();
+    await expect(report.locator('body')).toContainText(item.id);
+    await expect(report.locator('body')).toContainText(item.record);
+    await expect(report.getByText(item.risk, { exact: true })).toBeVisible();
+    await report.close();
+    await page.getByRole('button', { name: '退出回放' }).click();
+  }
+});
+
+test('a late snapshot cannot replace a newly selected case', async ({ page }) => {
+  await page.route('**/api/cases/IND-001/snapshot', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.continue().catch(() => {});
+  });
+  await page.goto('/');
+  await page.locator('.case-list').getByRole('button', { name: /IND-003/ }).click();
+  await expect(page.locator('.case-meta')).toContainText('LINE-01');
+  await page.waitForTimeout(300);
+  await expect(page.locator('.case-meta')).not.toContainText('LINE-03');
+  await expect(page.getByRole('img', { name: '温度基线 70，当前 86' })).toBeVisible();
+});
