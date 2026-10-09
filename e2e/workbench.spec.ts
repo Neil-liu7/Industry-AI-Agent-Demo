@@ -74,3 +74,27 @@ test('a late snapshot cannot replace a newly selected case', async ({ page }) =>
   await expect(page.locator('.case-meta')).not.toContainText('LINE-03');
   await expect(page.getByRole('img', { name: '温度基线 70，当前 86' })).toBeVisible();
 });
+
+test('online button sends the selected case and skill without invented progress', async ({ page }) => {
+  const replayResponse = await page.request.post('/api/replay', { data: { case_id: 'IND-001' } });
+  const replay = await replayResponse.json();
+  await page.route('**/api/agent/capabilities', async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ json: { ...(await response.json()), online_available: true } });
+  });
+  await page.route('**/api/diagnose', async (route) => {
+    expect(route.request().postDataJSON()).toMatchObject({
+      case_id: 'IND-001', skill_id: 'equipment-priority-patrol',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.fulfill({ json: { ...replay, mode: 'online', trace: [], skill: {
+      id: 'equipment-priority-patrol', version: '1.0.0', name: '设备优先级巡检',
+    } } });
+  });
+  await page.goto('/');
+  await page.getByRole('combobox', { name: 'Skill' }).selectOption('equipment-priority-patrol');
+  await page.getByRole('button', { name: '在线 Pi Agent 诊断' }).click();
+  await expect(page.getByText('等待开始演示')).toBeVisible();
+  await expect(page.getByText('在线真实执行')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '辅助诊断结果' })).toBeVisible();
+});
