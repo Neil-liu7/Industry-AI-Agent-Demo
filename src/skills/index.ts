@@ -6,11 +6,14 @@ const toolName = z.enum(['get_line_snapshot', 'get_equipment_snapshot', 'get_mai
 const skillSchema = z.object({
   id: z.string().min(1), version: z.string().regex(/^\d+\.\d+\.\d+$/),
   name: z.string().min(1), purpose: z.string().min(1), when: z.string().min(1),
+  inputs: z.array(z.enum(['case_id', 'question'])).min(2),
+  outputs: z.array(z.enum(['summary', 'risk_level', 'evidence_ids', 'hypotheses', 'recommended_checks', 'limitations'])).length(6),
   steps: z.array(z.string().min(1)).min(1),
   allowed_tools: z.array(toolName).min(1), required_tools: z.array(toolName).min(1),
   failure_policy: z.string().min(1),
 }).strict().refine((skill) => skill.required_tools.every((name) => skill.allowed_tools.includes(name)),
-  'Required tools must be allowed');
+  'Required tools must be allowed').refine((skill) => new Set(skill.inputs).size === 2 && new Set(skill.outputs).size === 6,
+  'Skill inputs and outputs must be unique and complete');
 
 export type Skill = z.infer<typeof skillSchema>;
 

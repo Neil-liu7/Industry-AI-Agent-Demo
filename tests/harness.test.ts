@@ -54,6 +54,26 @@ describe('industrial Pi harness', () => {
     expect(result.tool_calls).toBe(3);
   });
 
+  it('runs the explicitly selected patrol skill with an omitted equipment ID', async () => {
+    const patrolIds = ids.slice(1);
+    const result = await runDiagnosis(repository, {
+      case_id: 'IND-001', question: '请给出巡检优先级', skill_id: 'equipment-priority-patrol',
+    }, {
+      model: fakeModel,
+      streamFn: scriptedStream([
+        fakeMessage([
+          call('1', 'get_equipment_snapshot', { case_id: 'IND-001' }),
+          call('2', 'get_maintenance_history', { case_id: 'IND-001', equipment_id: 'EQ-003' }),
+        ], 'toolUse'),
+        fakeMessage([{ type: 'text', text: report({ evidence_ids: patrolIds }) }], 'stop'),
+      ]),
+    });
+    expect(result.status).toBe('completed');
+    expect(result.skill.id).toBe('equipment-priority-patrol');
+    expect(result.evidence.map((item) => item.id)).toEqual(patrolIds);
+    expect(result.tool_calls).toBe(2);
+  });
+
   it.each([
     ['forged evidence', { evidence_ids: [...ids, 'FAKE-999'] }],
     ['wrong risk', { risk_level: 'LOW' }],
@@ -98,7 +118,7 @@ describe('industrial Pi harness', () => {
     });
     expect(result.status).toBe('failed');
     expect(result.stop_reason).toBe('TOOL_BUDGET');
-    expect(result.tool_calls).toBe(7);
+    expect(result.tool_calls).toBe(6);
   });
 
   it('stops before a fifth model request', async () => {
@@ -110,7 +130,7 @@ describe('industrial Pi harness', () => {
     });
     expect(result.status).toBe('failed');
     expect(result.stop_reason).toBe('MODEL_BUDGET');
-    expect(result.model_calls).toBe(5);
+    expect(result.model_calls).toBe(4);
   });
 
   it('stops on a maintenance tool timeout and keeps completed local evidence', async () => {
@@ -154,5 +174,15 @@ describe('industrial Pi harness', () => {
     expect(result.stop_reason).toBe('POLICY_BLOCKED');
     expect(result.model_calls).toBe(0);
     expect(result.tool_calls).toBe(0);
+  });
+
+  it('rejects arbitrary code and work-order creation requests', async () => {
+    for (const question of ['运行脚本分析设备', '自动创建工单']) {
+      const result = await runDiagnosis(repository, { case_id: 'IND-001', question }, {
+        model: fakeModel, streamFn: scriptedStream([]),
+      });
+      expect(result.stop_reason).toBe('POLICY_BLOCKED');
+      expect(result.model_calls).toBe(0);
+    }
   });
 });

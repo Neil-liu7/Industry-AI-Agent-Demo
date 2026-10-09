@@ -29,16 +29,18 @@ export type RunResult = {
 export type OnlineEngine = { model: Model<any>; streamFn: StreamFn; getApiKey?: (provider: string) => string | undefined };
 
 const lineParams = Type.Object({ case_id: Type.String(), line_id: Type.String() }, { additionalProperties: false });
-const equipmentParams = Type.Object({ case_id: Type.String(), equipment_id: Type.String() }, { additionalProperties: false });
+const equipmentParams = Type.Object({ case_id: Type.String(), equipment_id: Type.Optional(Type.String()) }, { additionalProperties: false });
 const maintenanceParams = Type.Object({ case_id: Type.String(), equipment_id: Type.String() }, { additionalProperties: false });
 
 function checkArgs(args: unknown, data: IndustrialCase, name: string): boolean {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return false;
   const value = args as Record<string, unknown>;
-  const keys = name === 'get_line_snapshot' ? ['case_id', 'line_id'] : ['case_id', 'equipment_id'];
-  return Object.keys(value).length === keys.length && keys.every((key) => key in value) &&
-    value.case_id === data.case_id &&
-    (name === 'get_line_snapshot' ? value.line_id === data.line_id : value.equipment_id === data.equipment_id);
+  if (value.case_id !== data.case_id) return false;
+  if (name === 'get_line_snapshot') return Object.keys(value).length === 2 && value.line_id === data.line_id;
+  if (name === 'get_equipment_snapshot') return Object.keys(value).every((key) => ['case_id', 'equipment_id'].includes(key)) &&
+    (value.equipment_id === undefined || value.equipment_id === data.equipment_id);
+  return name === 'get_maintenance_history' && Object.keys(value).length === 2 &&
+    value.equipment_id === data.equipment_id;
 }
 
 function sourceOf(name: string): Source | 'unknown' {
@@ -48,7 +50,7 @@ function sourceOf(name: string): Source | 'unknown' {
 }
 
 function rejectionReason(question: string): string | null {
-  if (/启动|停止|关闭|写入|修改设定|控制设备|提交工单|执行命令|shell|bash|PLC|SCADA|MES/i.test(question)) {
+  if (/启动|停止|关闭|写入|修改设定|控制设备|提交工单|创建工单|运行脚本|任意代码|执行命令|shell|bash|PLC|SCADA|MES/i.test(question)) {
     return '设备控制、写入或任意命令请求不在只读演示范围';
   }
   return null;
@@ -181,17 +183,18 @@ export async function runDiagnosis(
       getApiKey: engine.getApiKey,
       toolExecution: 'sequential',
       prepareRequest: () => {
-        result.model_calls++;
-        if (result.model_calls > 4) {
+        if (result.model_calls >= 4) {
           stopReason = 'MODEL_BUDGET';
           agent.abort();
+        } else {
+          result.model_calls++;
         }
       },
       beforeToolCall: async ({ toolCall, args }) => {
-        result.tool_calls++;
-        if (result.tool_calls > 6) stopReason = 'TOOL_BUDGET';
+        if (result.tool_calls >= 6) stopReason = 'TOOL_BUDGET';
         else if (!skill.allowed_tools.includes(toolCall.name as ToolName) ||
           !checkArgs(args, data, toolCall.name)) stopReason = 'POLICY_BLOCKED';
+        else result.tool_calls++;
         return stopReason ? { block: true, reason: stopReason, terminate: true } : undefined;
       },
       finishTurn: () => stopReason ? { action: 'end' } : undefined,

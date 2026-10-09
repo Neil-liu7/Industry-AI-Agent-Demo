@@ -10,6 +10,7 @@ describe('trusted skills', () => {
   const skills = loadSkills();
   it('loads two versioned declarations and selects by intent', () => {
     expect(skills).toHaveLength(2);
+    expect(skills.every((skill) => skill.inputs.includes('case_id') && skill.outputs.includes('evidence_ids'))).toBe(true);
     expect(selectSkill(skills, '设备巡检优先级').id).toBe('equipment-priority-patrol');
     expect(selectSkill(skills, '产量为何下降').id).toBe('line-anomaly-diagnosis');
     expect(() => selectSkill(skills, 'anything', 'missing')).toThrow('Unknown skill');

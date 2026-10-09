@@ -21,7 +21,7 @@ export function validateDiagnosis(text: string, risk: RiskLevel, availableIds: s
     throw new Error('Model evidence IDs are missing, duplicated or unverified');
   }
   const prose = [diagnosis.summary, ...diagnosis.hypotheses, ...diagnosis.recommended_checks].join(' ');
-  if (/执行命令|运行脚本|自动提交|自动启动|自动停止|写入设备|修改设定|run shell|execute command/i.test(prose)) {
+  if (/执行命令|运行脚本|自动提交|自动启动|自动停止|停止设备|启动设备|关闭阀门|写入设备|修改设定|run shell|execute command|start machine|stop machine/i.test(prose)) {
     throw new Error('Model recommendation exceeds read-only scope');
   }
   return diagnosis;
