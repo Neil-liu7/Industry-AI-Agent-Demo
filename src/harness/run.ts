@@ -19,7 +19,10 @@ export type ToolTrace = TraceContext & {
   duration_ms?: number; args: Record<string, unknown>; result_summary?: string;
   evidence_id?: string; retry_count: number;
 };
-export type StepTrace = TraceContext & { kind: 'step'; name: string; status: 'completed' | 'failed'; at: string; detail?: string };
+export type StepTrace = TraceContext & {
+  kind: 'step'; name: string; status: 'completed' | 'failed';
+  started_at: string; ended_at: string; duration_ms: number; detail?: string;
+};
 export type Trace = ToolTrace | StepTrace;
 export type Evidence = { id: string; source: Source; tool: ToolName; data: Record<string, unknown> };
 export type RunResult = {
@@ -91,8 +94,11 @@ export async function runDiagnosis(
   const deadlineAt = Date.now() + (options.timeoutMs ?? 30000);
   const traceContext = (): TraceContext => ({ run_id: result.id, skill_id: skill.id, skill_version: skill.version,
     budget: { model_calls: result.model_calls, tool_calls: result.tool_calls } });
-  const step = (name: string, status: StepTrace['status'], detail?: string) =>
-    trace.push({ ...traceContext(), kind: 'step', name, status, at: new Date().toISOString(), detail });
+  const step = (name: string, status: StepTrace['status'], detail?: string) => {
+    const at = new Date().toISOString();
+    trace.push({ ...traceContext(), kind: 'step', name, status,
+      started_at: at, ended_at: at, duration_ms: 0, detail });
+  };
   const finalizeTrace = () => { for (const item of trace) item.stop_reason = result.stop_reason; };
   const rejected = rejectionReason(input.question);
   if (rejected) {
@@ -246,7 +252,8 @@ export async function runDiagnosis(
       } else if (event.type === 'tool_execution_end') {
         const item = trace.findLast((entry): entry is ToolTrace => entry.kind === 'tool' && entry.tool_call_id === event.toolCallId);
         if (item) {
-          item.ended_at = new Date().toISOString(); item.duration_ms = event.durationMs;
+          item.ended_at = new Date().toISOString();
+          item.duration_ms = event.durationMs ?? Math.max(0, Date.parse(item.ended_at) - Date.parse(item.started_at));
           item.status = event.isError ? 'failed' : 'completed';
           item.result_summary = event.isError ? 'Tool failed or was blocked' : String(event.result?.details?.summary ?? 'Read completed');
           item.evidence_id = event.result?.details?.evidence_id;

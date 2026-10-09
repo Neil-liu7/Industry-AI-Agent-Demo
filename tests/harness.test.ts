@@ -56,7 +56,8 @@ describe('industrial Pi harness', () => {
     expect(result.tool_calls).toBe(3);
     expect(result.trace.every((item) => item.run_id === result.id &&
       item.skill_id === result.skill.id && item.skill_version === result.skill.version &&
-      item.stop_reason === 'COMPLETED')).toBe(true);
+      item.stop_reason === 'COMPLETED' && item.ended_at !== undefined &&
+      item.duration_ms !== undefined)).toBe(true);
     expect(result.trace.filter((item) => item.kind === 'step').map((item) => item.name))
       .toEqual(expect.arrayContaining(['读取产线快照', '读取设备快照', '读取维修记录',
         '核对确定性风险与证据', '形成辅助诊断']));

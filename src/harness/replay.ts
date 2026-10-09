@@ -29,9 +29,11 @@ export function createReplay(repository: Repository, caseId: string, question = 
   const traceContext = { run_id: id, skill_id: skill.id, skill_version: skill.version,
     budget: { model_calls: 0, tool_calls: 0 }, stop_reason: 'REPLAY_COMPLETED' };
   const trace: Trace[] = [
-    { ...traceContext, kind: 'step', name: '案例概览（预录回放）', status: 'completed', at: now,
+    { ...traceContext, kind: 'step', name: '案例概览（预录回放）', status: 'completed',
+      started_at: now, ended_at: now, duration_ms: 0,
       detail: `${data.case_id} · ${data.snapshot_date} · 合成数据` },
-    { ...traceContext, kind: 'step', name: 'Skill 与 Harness（预录回放）', status: 'completed', at: now,
+    { ...traceContext, kind: 'step', name: 'Skill 与 Harness（预录回放）', status: 'completed',
+      started_at: now, ended_at: now, duration_ms: 0,
       detail: `${skill.name} ${skill.version} · 只读工具与证据校验` },
   ];
   for (const item of evidence) {
@@ -41,9 +43,11 @@ export function createReplay(repository: Repository, caseId: string, question = 
       evidence_id: item.id, retry_count: 0 };
     trace.push(tool);
   }
-  trace.push({ ...traceContext, kind: 'step', name: '诊断证据（预录回放）', status: 'completed', at: now,
+  trace.push({ ...traceContext, kind: 'step', name: '诊断证据（预录回放）', status: 'completed',
+    started_at: now, ended_at: now, duration_ms: 0,
     detail: diagnosis.evidence_ids.join(', ') });
-  trace.push({ ...traceContext, kind: 'step', name: '报告（预录回放）', status: 'completed', at: now });
+  trace.push({ ...traceContext, kind: 'step', name: '报告（预录回放）', status: 'completed',
+    started_at: now, ended_at: now, duration_ms: 0 });
   return {
     id, case_id: caseId, mode: 'replay', status: 'completed', created_at: now,
     question, snapshot_date: data.snapshot_date, data_type: 'synthetic',

@@ -58,6 +58,8 @@ describe('diagnosis API, replay and durable history', () => {
       expect(session.tool_calls).toBe(0);
       expect(session.trace.every((item: { run_id: string; stop_reason: string; budget: { tool_calls: number } }) =>
         item.run_id === session.id && item.stop_reason === 'REPLAY_COMPLETED' && item.budget.tool_calls === 0)).toBe(true);
+      expect(session.trace.every((item: { started_at: string; ended_at: string; duration_ms: number }) =>
+        item.started_at && item.ended_at && item.duration_ms === 0)).toBe(true);
       expect(session.trace.filter((item: { kind: string }) => item.kind === 'tool')
         .every((item: { replayed: boolean }) => item.replayed)).toBe(true);
       const detail = await (await fetch(base + `/api/sessions/${session.id}`)).json();
