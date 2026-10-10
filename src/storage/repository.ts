@@ -6,6 +6,7 @@ import type { EvaluationRun } from '../evaluation';
 import type { RunResult } from '../harness/run';
 import type { WorkOrder } from '../domain/work-orders';
 import type { ScheduleDecision } from '../scheduling';
+import type { TelemetryImport } from '../telemetry-import';
 
 export function databasePath() {
   return join(process.env.DATA_DIR ?? 'data', 'demo.sqlite');
@@ -41,6 +42,10 @@ export class Repository {
         id TEXT PRIMARY KEY, case_id TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS schedule_decisions_case_order ON schedule_decisions(case_id, created_at DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS telemetry_imports (
+        id TEXT PRIMARY KEY, case_id TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS telemetry_imports_case_order ON telemetry_imports(case_id, created_at DESC, id DESC);
     `);
   }
 
@@ -135,6 +140,16 @@ export class Repository {
   listScheduleDecisions(caseId: string): ScheduleDecision[] {
     return this.db.prepare('SELECT payload FROM schedule_decisions WHERE case_id = ? ORDER BY created_at DESC, id DESC LIMIT 20')
       .all(caseId).map((row) => JSON.parse(String(row.payload)) as ScheduleDecision);
+  }
+
+  saveTelemetryImport(imported: TelemetryImport) {
+    this.db.prepare('INSERT INTO telemetry_imports VALUES (?, ?, ?, ?)').run(
+      imported.id, imported.case_id, imported.created_at, JSON.stringify(imported));
+  }
+
+  listTelemetryImports(caseId: string): TelemetryImport[] {
+    return this.db.prepare('SELECT payload FROM telemetry_imports WHERE case_id = ? ORDER BY created_at DESC, id DESC LIMIT 20')
+      .all(caseId).map((row) => JSON.parse(String(row.payload)) as TelemetryImport);
   }
 
   listSessions(filters: { case_id?: string; mode?: 'online' | 'replay'; limit?: number; cursor?: string }) {

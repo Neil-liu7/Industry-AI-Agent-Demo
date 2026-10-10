@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { join } from 'node:path';
 
 test('offline demo, playback controls, history and printable report', async ({ page, context }) => {
   await page.goto('/');
@@ -343,4 +344,20 @@ test('industrial event timeline requires sustained alarm and shows virtual reche
   await expect(panel).toContainText('SOP-COOL-01');
   await panel.getByRole('button', { name: '预览虚拟复测' }).click();
   await expect(panel.getByRole('status')).toContainText('复测未通过');
+});
+
+test('CSV telemetry import exposes quality evidence and industrial outcome metrics', async ({ page }) => {
+  await page.goto('/#assurance');
+  const importer = page.locator('.telemetry-import-panel');
+  const outcome = page.locator('.industrial-outcome-panel');
+  await expect(outcome).toContainText('已确认告警');
+  await expect(outcome).toContainText('少延期');
+  await expect(outcome).toContainText('14.2 h');
+  await importer.getByLabel('导入 CSV 文件').setInputFiles(join(process.cwd(), 'data', 'telemetry-import-example.csv'));
+  await importer.getByRole('button', { name: '导入并校验' }).click();
+  await expect(importer.locator('.import-history article').first()).toContainText('持续告警 · 4 个样本');
+  await expect(importer.locator('.import-history article').first()).toContainText('质量 BAD：0');
+  await expect(outcome).toContainText('当前案例 CSV 导入 1 批');
+  await page.reload();
+  await expect(page.locator('.import-history article').first()).toContainText('持续告警 · 4 个样本');
 });

@@ -8,6 +8,7 @@ import { KnowledgePanel } from './KnowledgePanel';
 import { SchedulingPanel } from './SchedulingPanel';
 import { OperationsPanel } from './OperationsPanel';
 import { WorkOrderCard } from './WorkOrderCard';
+import { IndustrialDataPanel } from './IndustrialDataPanel';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic';
   risk_level: RiskLevel; line_id: string; equipment_id: string; metrics: CaseMetrics };
@@ -294,7 +295,7 @@ export function App() {
   }
   return <div className="app-shell">
     <header className="topbar"><div className="brand"><span className="brand-mark">π</span><div><b>INDUSTRIAL / PI</b><small>智能体辅助诊断工作台</small></div></div>
-      <div className="topbar-right"><span className="live-dot"/> 单机演示环境 <span className="top-divider"/> <strong>合成数据 · 非生产系统</strong></div></header>
+      <div className="topbar-right"><span className="live-dot"/> 单机演示环境 <span className="top-divider"/> <strong>内置合成数据 · CSV 独立导入</strong></div></header>
     <main className="workspace">
       <div className="page-heading"><div><span className="eyebrow green">OPERATIONS INTELLIGENCE / DEMO</span><h1>{areaHeading[area].title}</h1>
         <p>{areaHeading[area].description}</p></div>
@@ -481,8 +482,9 @@ export function App() {
           </li>)}</ol><p>证据：{safetyResult.evidence_ids.join('、') || '无'}</p></details>
         </div>}
       </section>
+      <IndustrialDataPanel caseId={caseId} active={area === 'assurance'}/>
       </div>
-      <footer>INDUSTRIAL / PI · 所有数值与维修记录均为合成样例 · 仅供人工辅助诊断</footer>
+      <footer>INDUSTRIAL / PI · 内置案例与维修记录为合成样例；导入 CSV 单独标记 · 仅供人工辅助分析</footer>
     </main>
   </div>;
 }

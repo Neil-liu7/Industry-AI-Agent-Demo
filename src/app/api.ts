@@ -14,6 +14,8 @@ import { workOrderAssignees, type WorkOrder, type WorkOrderStatus } from '../dom
 import { loadKnowledgeLibrary, searchKnowledge } from '../knowledge';
 import { loadSchedulingDataset, simulateIncidentImpact, simulateSchedule } from '../scheduling';
 import { assessOperations, loadOperationsDataset, telemetryEvidence, verifyOperations } from '../operations';
+import { importTelemetryCsv } from '../telemetry-import';
+import { evaluateIndustrialOutcome } from '../industrial-evaluation';
 
 const diagnosisInput = z.object({
   case_id: z.string().min(1), question: z.string().trim().min(1).max(2000),
@@ -42,6 +44,7 @@ const scheduleDecisionInput = z.object({
   strategy: z.enum(['deadline_first', 'energy_first']), note: z.string().trim().min(10).max(500),
 }).strict();
 const verificationInput = z.object({ case_id: z.string(), action_id: z.string() }).strict();
+const telemetryImportInput = z.object({ case_id: z.string().min(1), csv: z.string().min(1).max(12000) }).strict();
 
 export function createApp(repository: Repository, engineFactory: () => OnlineEngine | null = onlineEngineFromEnv) {
   const skills = loadSkills();
@@ -148,6 +151,27 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     try { return res.json(verifyOperations(episode, operationsDataset.thresholds, parsed.data.action_id)); }
     catch { return res.status(409).json({ error: 'No verified scenario for this action' }); }
   });
+  app.get('/api/telemetry/imports', (req, res) => {
+    if (typeof req.query.case_id !== 'string' || !repository.getCase(req.query.case_id)) {
+      return res.status(400).json({ error: 'Valid case_id is required' });
+    }
+    return res.json({ items: repository.listTelemetryImports(req.query.case_id) });
+  });
+  app.post('/api/telemetry/import', (req, res) => {
+    const parsed = telemetryImportInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid CSV import request' });
+    const selected = repository.getCase(parsed.data.case_id);
+    if (!selected) return res.status(400).json({ error: 'Unknown case_id' });
+    try {
+      const imported = importTelemetryCsv(parsed.data.csv, selected, operationsDataset.thresholds);
+      repository.saveTelemetryImport(imported);
+      return res.status(201).json(imported);
+    } catch (error) {
+      return res.status(400).json({ error: error instanceof Error ? error.message : 'Invalid CSV data' });
+    }
+  });
+  app.get('/api/industrial-evaluation', (_req, res) =>
+    res.json(evaluateIndustrialOutcome(repository, operationsDataset, schedulingDataset)));
   app.get('/api/agent/capabilities', (_req, res) => res.json({
     online_available: engineFactory() !== null, replay_available: true,
     skills: skills.map(({ id, version, name, purpose }) => ({ id, version, name, purpose })),
