@@ -359,7 +359,7 @@ export function App() {
           </div>
           <div className="panel trace-panel"><div className="panel-title"><span className="eyebrow">04 / HARNESS TRACE</span><h2>执行轨迹</h2></div>
             {!session ? <div className="empty-state"><span>◎</span><b>等待开始演示</b><p>选择案例后点击一键演示，查看 Skill、工具与证据如何衔接。</p></div> : <>
-              <div className="session-header"><span className={`mode-tag ${session.mode}`}>{session.mode === 'replay' ? '离线预录回放' : '在线真实执行'}</span>
+              <div className="session-header"><span className={`mode-tag ${session.mode}`}>{session.mode === 'replay' ? '离线预录回放' : '在线真实执行'}{session.status === 'failed' ? ' · 未完成' : ''}</span>
                 <span className={`risk risk-${session.metrics.risk_level.toLowerCase()}`}>{riskLabel[session.metrics.risk_level]}</span><span>{session.skill.name} v{session.skill.version}</span></div>
               <div className="trace-stats"><span>{session.mode === 'replay' ? `实际模型调用 ${session.model_calls}` : `模型调用 ${session.model_calls}/${capabilities?.limits.model_calls ?? 4}`}</span>
                 <span>{session.mode === 'replay' ? `实际工具调用 ${session.tool_calls}` : `工具调用 ${session.tool_calls}/${capabilities?.limits.tool_calls ?? 6}`}</span>
@@ -416,7 +416,7 @@ export function App() {
           <option value="">全部模式</option><option value="replay">离线回放</option><option value="online">在线诊断</option></select></div>
         {history.length === 0 ? <p className="fineprint">此案例还没有历史会话。</p> : <div className="history-list">{history.map((item) => <button key={item.id} onClick={() => { setCaseId(item.case_id); setSession(item); setPlaying(false); setFrame(item.trace.length - 1); }}>
           <span><b>{item.case_id}</b><small>{new Date(item.created_at).toLocaleString('zh-CN')} · {item.skill.name}</small></span>
-          <span className={`mode-tag ${item.mode}`}>{item.mode === 'replay' ? '回放' : '在线'}</span><span className={`risk risk-${item.metrics.risk_level.toLowerCase()}`}>{riskLabel[item.metrics.risk_level]}</span><span>查看 →</span>
+          <span className={`mode-tag ${item.mode}`}>{item.mode === 'replay' ? '回放' : '在线'}{item.status === 'failed' ? ' · 未完成' : ''}</span><span className={`risk risk-${item.metrics.risk_level.toLowerCase()}`}>{riskLabel[item.metrics.risk_level]}</span><span>查看 →</span>
         </button>)}</div>}{cursor && <button className="more" onClick={() => void loadMore()}>加载更多历史</button>}
       </section>
       </div>

@@ -147,6 +147,20 @@ test('online button sends the selected case and skill without invented progress'
   await expect(page.getByRole('heading', { name: '辅助诊断结果' })).toBeVisible();
 });
 
+test('failed online history visibly keeps its incomplete status', async ({ page }) => {
+  const replay = await (await page.request.post('/api/replay', { data: { case_id: 'IND-001' } })).json();
+  await page.route('**/api/sessions?*', async (route) => {
+    await route.fulfill({ json: { items: [{ ...replay, mode: 'online', status: 'failed',
+      diagnosis: null, stop_reason: 'MODEL_ERROR' }], next_cursor: null } });
+  });
+  await page.goto('/');
+  const history = page.locator('.history-list');
+  await expect(history.getByRole('button', { name: /在线 · 未完成/ })).toBeVisible();
+  await history.getByRole('button', { name: /在线 · 未完成/ }).click();
+  await expect(page.locator('.session-header')).toContainText('在线真实执行 · 未完成');
+  await expect(page.locator('.error-banner')).toContainText('MODEL_ERROR');
+});
+
 test('evaluation panel submits a fixed Skill run and displays returned scores', async ({ page }) => {
   await page.route('**/api/agent/capabilities', async (route) => {
     const response = await route.fetch();
