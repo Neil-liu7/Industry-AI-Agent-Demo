@@ -118,5 +118,9 @@ describe('synthetic knowledge and virtual scheduling', () => {
       headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...payload,
         work_order_id: '00000000-0000-4000-8000-000000000000' }) });
     expect(invalid.status).toBe(409);
+    order.incident.telemetry_evidence_id = 'forged-telemetry-evidence';
+    repository.updateWorkOrder(order);
+    expect((await fetch(base + '/api/scheduling/decisions', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })).status).toBe(409);
   });
 });
