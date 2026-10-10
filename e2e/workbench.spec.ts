@@ -361,3 +361,31 @@ test('CSV telemetry import exposes quality evidence and industrial outcome metri
   await page.reload();
   await expect(page.locator('.import-history article').first()).toContainText('持续告警 · 4 个样本');
 });
+
+test('a late CSV response cannot appear under a newly selected asset', async ({ page }) => {
+  let release!: () => void;
+  let started!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  const posted = new Promise<void>((resolve) => { started = resolve; });
+  await page.route('**/api/telemetry/import', async (route) => {
+    const response = await route.fetch();
+    started();
+    await hold;
+    await route.fulfill({ response });
+  });
+  await page.goto('/#assurance');
+  const importer = page.locator('.telemetry-import-panel');
+  await importer.getByLabel('导入 CSV 文件').setInputFiles(join(process.cwd(), 'data', 'telemetry-import-example.csv'));
+  await importer.getByRole('button', { name: '导入并校验' }).click();
+  await posted;
+  await page.getByRole('button', { name: /诊断与监测/ }).click();
+  await page.locator('.case-list').getByRole('button', { name: /IND-003/ }).click();
+  await page.getByRole('button', { name: /评测与安全/ }).click();
+  await expect(importer).toContainText('选中案例 IND-003');
+  const received = page.waitForResponse('**/api/telemetry/import');
+  release();
+  await received;
+  await page.waitForTimeout(100);
+  await expect(importer.locator('.import-history article')).toHaveCount(0);
+  await expect(importer).toContainText('当前案例还没有导入记录');
+});

@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { IndustrialOutcome } from '../industrial-evaluation';
 import type { TelemetryImport } from '../telemetry-import';
 
 const stateLabel = { NORMAL: '正常', WATCH: '待确认', ALARM: '持续告警', DATA_GAP: '数据不足' };
 
 export function IndustrialDataPanel({ caseId, active }: { caseId: string; active: boolean }) {
+  const currentCase = useRef(caseId);
+  currentCase.current = caseId;
+  const requestId = useRef(0);
   const [file, setFile] = useState<File | null>(null);
   const [imports, setImports] = useState<TelemetryImport[]>([]);
   const [outcome, setOutcome] = useState<IndustrialOutcome | null>(null);
@@ -12,7 +15,8 @@ export function IndustrialDataPanel({ caseId, active }: { caseId: string; active
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setFile(null); setImports([]);
+    requestId.current++;
+    setFile(null); setImports([]); setBusy(false); setError('');
     if (!active || !caseId) return;
     const controller = new AbortController();
     void Promise.all([
@@ -28,19 +32,28 @@ export function IndustrialDataPanel({ caseId, active }: { caseId: string; active
 
   async function upload() {
     if (!file) return;
+    const submittedCase = caseId;
+    const submittedRequest = ++requestId.current;
+    const isCurrent = () => currentCase.current === submittedCase && requestId.current === submittedRequest;
     setBusy(true); setError('');
     try {
+      const csv = await file.text();
+      if (!isCurrent()) return;
       const response = await fetch('/api/telemetry/import', { method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ case_id: caseId, csv: await file.text() }) });
+        body: JSON.stringify({ case_id: submittedCase, csv }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? 'CSV 导入失败');
+      if (!isCurrent()) return;
       setImports((previous) => [body as TelemetryImport, ...previous]);
       const metrics = await fetch('/api/industrial-evaluation');
-      if (metrics.ok) setOutcome(await metrics.json() as IndustrialOutcome);
-      setFile(null);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'CSV 导入失败'); }
-    finally { setBusy(false); }
+      if (metrics.ok) {
+        const updated = await metrics.json() as IndustrialOutcome;
+        if (isCurrent()) setOutcome(updated);
+      }
+      if (isCurrent()) setFile(null);
+    } catch (failure) { if (isCurrent()) setError(failure instanceof Error ? failure.message : 'CSV 导入失败'); }
+    finally { if (isCurrent()) setBusy(false); }
   }
 
   return <>
