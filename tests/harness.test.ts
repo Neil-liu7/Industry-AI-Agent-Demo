@@ -80,7 +80,13 @@ describe('industrial Pi harness', () => {
         fakeMessage(fullCalls, 'toolUse'),
         fakeMessage([{ type: 'text', text: report({ limitations: '合成数据，仅供辅助诊断' }) }], 'stop'),
         fakeMessage([{ type: 'text', text: report() }], 'stop'),
-      ]),
+      ], (context, index) => {
+        if (index === 2) {
+          const lastUser = [...context.messages].reverse().find((message) => message.role === 'user');
+          expect(JSON.stringify(lastUser)).toContain(ids[0]);
+          expect(JSON.stringify(lastUser)).toContain(ids[3]);
+        }
+      }),
     });
     expect(result.status).toBe('completed');
     expect(result.model_calls).toBe(3);
