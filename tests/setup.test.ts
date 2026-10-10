@@ -12,6 +12,11 @@ function isIgnored(path: string): boolean {
 describe('project bootstrap', () => {
   it('documents the supported Node runtime and excludes local secrets', () => {
     expect(readFileSync('.nvmrc', 'utf8').trim()).toBe('22.19.0');
+    const readme = readFileSync('README.md', 'utf8');
+    expect(readme).toContain('## 项目动机');
+    expect(readme).toContain('## 部署方式');
+    expect(readme).toContain('NODE_ENV=production npm start');
+    expect(readme).toContain('npm run verify');
     expect(readFileSync('.env.example', 'utf8')).toContain('ANTHROPIC_API_KEY=\n');
     expect(isIgnored('.env')).toBe(true);
     expect(isIgnored('.env.local')).toBe(true);
