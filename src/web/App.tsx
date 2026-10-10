@@ -436,7 +436,7 @@ export function App() {
       <KnowledgePanel caseId={caseId} checks={session?.diagnosis?.recommended_checks ?? []}/>
       </div>
       <div className="workspace-view" hidden={area !== 'scheduling'}>
-      <SchedulingPanel/>
+      <SchedulingPanel caseId={caseId} workOrders={workOrders}/>
       </div>
       <div className="workspace-view" hidden={area !== 'assurance'}>
       <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">01 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>

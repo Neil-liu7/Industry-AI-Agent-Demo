@@ -251,8 +251,28 @@ test('knowledge sources and scheduling disruption are visible without a model ke
   await scheduling.getByRole('combobox', { name: '设备扰动' }).selectOption('M-FAST');
   await scheduling.getByRole('button', { name: '运行仿真' }).click();
   await expect(scheduling).toContainText('高速加工单元停用');
-  await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('总延期 14 h');
-  await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('能耗 116 kWh');
+  await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('总延期 0.8 h');
+  await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('能耗 143.2 kWh');
+});
+
+test('alarm scheduling impact leads to a persisted human simulation choice', async ({ page }) => {
+  const replay = await (await page.request.post('/api/replay', { data: { case_id: 'IND-001' } })).json();
+  const orderResponse = await page.request.post('/api/work-orders', { data: {
+    session_id: replay.id, assignee: 'equipment_technician',
+  } });
+  expect(orderResponse.status()).toBe(201);
+  await page.goto('/#scheduling');
+  const panel = page.locator('.scheduling-panel');
+  await expect(panel.locator('.incident-schedule')).toContainText('IND-001 / EQ-003');
+  await expect(panel.locator('.incident-schedule')).toContainText('TEL-IND-001-004');
+  await expect(panel.locator('.impact-grid article').first()).toContainText('0 → 0.8 h');
+  await expect(panel.locator('.incident-schedule')).toContainText('规则建议：交期优先');
+  await panel.getByRole('combobox', { name: '选择仿真方案' }).selectOption('deadline_first');
+  await panel.getByRole('textbox', { name: '排程选择说明' }).fill('人工选择交期优先，以减少装配批次延期。');
+  await panel.getByRole('button', { name: '保存人工选择（仅仿真）' }).click();
+  await expect(panel.locator('.decision-history')).toContainText('人工选择交期优先');
+  await page.reload();
+  await expect(page.locator('.decision-history')).toContainText('人工选择交期优先');
 });
 
 test('workspace navigation keeps the active case and diagnosis session while showing one area at a time', async ({ page }) => {

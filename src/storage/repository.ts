@@ -5,6 +5,7 @@ import { caseSchema, type IndustrialCase } from '../domain/cases';
 import type { EvaluationRun } from '../evaluation';
 import type { RunResult } from '../harness/run';
 import type { WorkOrder } from '../domain/work-orders';
+import type { ScheduleDecision } from '../scheduling';
 
 export function databasePath() {
   return join(process.env.DATA_DIR ?? 'data', 'demo.sqlite');
@@ -36,6 +37,10 @@ export class Repository {
         id TEXT PRIMARY KEY, case_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS work_orders_case_order ON work_orders(case_id, created_at DESC, id DESC);
+      CREATE TABLE IF NOT EXISTS schedule_decisions (
+        id TEXT PRIMARY KEY, case_id TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS schedule_decisions_case_order ON schedule_decisions(case_id, created_at DESC, id DESC);
     `);
   }
 
@@ -120,6 +125,16 @@ export class Repository {
       ? this.db.prepare('SELECT payload FROM work_orders WHERE case_id = ? ORDER BY created_at DESC, id DESC LIMIT 50').all(caseId)
       : this.db.prepare('SELECT payload FROM work_orders ORDER BY created_at DESC, id DESC LIMIT 50').all();
     return rows.map((row) => JSON.parse(String(row.payload)) as WorkOrder);
+  }
+
+  saveScheduleDecision(decision: ScheduleDecision) {
+    this.db.prepare('INSERT INTO schedule_decisions VALUES (?, ?, ?, ?)').run(
+      decision.id, decision.case_id, decision.created_at, JSON.stringify(decision));
+  }
+
+  listScheduleDecisions(caseId: string): ScheduleDecision[] {
+    return this.db.prepare('SELECT payload FROM schedule_decisions WHERE case_id = ? ORDER BY created_at DESC, id DESC LIMIT 20')
+      .all(caseId).map((row) => JSON.parse(String(row.payload)) as ScheduleDecision);
   }
 
   listSessions(filters: { case_id?: string; mode?: 'online' | 'replay'; limit?: number; cursor?: string }) {

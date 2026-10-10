@@ -12,7 +12,7 @@ import { runSafetyScenario, safetyScenarios } from '../safety-lab';
 import { randomUUID } from 'node:crypto';
 import { workOrderAssignees, type WorkOrder, type WorkOrderStatus } from '../domain/work-orders';
 import { loadKnowledgeLibrary, searchKnowledge } from '../knowledge';
-import { loadSchedulingDataset, simulateSchedule } from '../scheduling';
+import { loadSchedulingDataset, simulateIncidentImpact, simulateSchedule } from '../scheduling';
 import { assessOperations, loadOperationsDataset, telemetryEvidence, verifyOperations } from '../operations';
 
 const diagnosisInput = z.object({
@@ -37,6 +37,10 @@ const resolutionInput = z.object({
   note: z.string().trim().min(10).max(1000),
 }).strict();
 const schedulingInput = z.object({ unavailable_machine_id: z.string().nullable() }).strict();
+const scheduleDecisionInput = z.object({
+  case_id: z.string().min(1), work_order_id: z.string().uuid(),
+  strategy: z.enum(['deadline_first', 'energy_first']), note: z.string().trim().min(10).max(500),
+}).strict();
 const verificationInput = z.object({ case_id: z.string(), action_id: z.string() }).strict();
 
 export function createApp(repository: Repository, engineFactory: () => OnlineEngine | null = onlineEngineFromEnv) {
@@ -45,6 +49,14 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
   const knowledgeLibrary = loadKnowledgeLibrary(repository);
   const schedulingDataset = loadSchedulingDataset();
   const operationsDataset = loadOperationsDataset(repository);
+  const scheduleEpisode = operationsDataset.episodes.find((item) =>
+    item.case_id === schedulingDataset.incident_source.case_id);
+  if (!scheduleEpisode || scheduleEpisode.line_id !== schedulingDataset.line_id ||
+    scheduleEpisode.equipment_id !== schedulingDataset.incident_source.equipment_id) {
+    throw new Error('Scheduling incident source does not match equipment context');
+  }
+  const scheduleImpact = () => simulateIncidentImpact(schedulingDataset,
+    telemetryEvidence(scheduleEpisode, operationsDataset.thresholds).incident);
   let evaluationRunning = false;
   const app = express();
   app.disable('x-powered-by');
@@ -85,6 +97,39 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
         deadline_first: simulateSchedule(schedulingDataset, 'deadline_first', unavailable),
         energy_first: simulateSchedule(schedulingDataset, 'energy_first', unavailable) });
     } catch { return res.status(400).json({ error: 'Unavailable machine is unknown or leaves an order unschedulable' }); }
+  });
+  app.get('/api/scheduling/incident-impact', (req, res) => {
+    if (req.query.case_id !== schedulingDataset.incident_source.case_id) {
+      return res.status(400).json({ error: 'No mapped scheduling equipment for this case' });
+    }
+    try { return res.json(scheduleImpact()); }
+    catch { return res.status(409).json({ error: 'No confirmed alarm or feasible disruption plan' }); }
+  });
+  app.get('/api/scheduling/decisions', (req, res) => {
+    if (req.query.case_id !== schedulingDataset.incident_source.case_id) {
+      return res.status(400).json({ error: 'No mapped scheduling equipment for this case' });
+    }
+    return res.json({ items: repository.listScheduleDecisions(schedulingDataset.incident_source.case_id) });
+  });
+  app.post('/api/scheduling/decisions', (req, res) => {
+    const parsed = scheduleDecisionInput.safeParse(req.body);
+    if (!parsed.success || parsed.data.case_id !== schedulingDataset.incident_source.case_id) {
+      return res.status(400).json({ error: 'Invalid schedule decision' });
+    }
+    const order = repository.getWorkOrder(parsed.data.work_order_id);
+    if (!order || order.case_id !== parsed.data.case_id || order.equipment_id !== scheduleEpisode.equipment_id ||
+      order.resolution) return res.status(409).json({ error: 'An unresolved linked work order is required' });
+    try {
+      const impact = scheduleImpact();
+      if (order.incident?.telemetry_evidence_id !== impact.incident.telemetry_evidence_id) {
+        return res.status(409).json({ error: 'Work order alarm evidence does not match' });
+      }
+      const decision = { id: randomUUID(), case_id: parsed.data.case_id,
+        work_order_id: order.id, created_at: new Date().toISOString(),
+        strategy: parsed.data.strategy, note: parsed.data.note, impact };
+      repository.saveScheduleDecision(decision);
+      return res.status(201).json(decision);
+    } catch { return res.status(409).json({ error: 'No confirmed alarm or feasible disruption plan' }); }
   });
   app.get('/api/operations', (req, res) => {
     const episode = operationsDataset.episodes.find((item) => item.case_id === req.query.case_id);

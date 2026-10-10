@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import type { Server } from 'node:http';
 import { createApp } from '../src/app/api';
 import { loadKnowledgeLibrary, searchKnowledge } from '../src/knowledge';
-import { loadSchedulingDataset, simulateSchedule, type ScheduleResult } from '../src/scheduling';
+import { loadSchedulingDataset, simulateIncidentImpact, simulateSchedule, type ScheduleResult } from '../src/scheduling';
+import { loadOperationsDataset, telemetryEvidence } from '../src/operations';
 import { Repository } from '../src/storage/repository';
 
 describe('synthetic knowledge and virtual scheduling', () => {
@@ -49,8 +50,8 @@ describe('synthetic knowledge and virtual scheduling', () => {
     const data = loadSchedulingDataset();
     const deadline = simulateSchedule(data, 'deadline_first');
     const energy = simulateSchedule(data, 'energy_first');
-    expect(deadline.kpis).toEqual({ makespan_h: 6, total_late_h: 0, late_orders: 0, energy_kwh: 138 });
-    expect(energy.kpis).toEqual({ makespan_h: 14.5, total_late_h: 14, late_orders: 4, energy_kwh: 116 });
+    expect(deadline.kpis).toEqual({ makespan_h: 5, total_late_h: 0, late_orders: 0, energy_kwh: 142.2 });
+    expect(energy.kpis).toEqual({ makespan_h: 14.5, total_late_h: 15, late_orders: 4, energy_kwh: 116 });
     for (const result of [deadline, energy]) {
       expect(result.assignments).toHaveLength(data.orders.length);
       for (const machine of data.machines) {
@@ -66,8 +67,8 @@ describe('synthetic knowledge and virtual scheduling', () => {
       }
     }
     const disrupted = simulateSchedule(data, 'deadline_first', 'M-FAST');
-    expect(disrupted.assignments.every((item) => item.machine_id === 'M-ECO')).toBe(true);
-    expect(disrupted.kpis.total_late_h).toBe(14);
+    expect(disrupted.assignments.every((item) => item.machine_id !== 'M-FAST')).toBe(true);
+    expect(disrupted.kpis).toEqual({ makespan_h: 6.8, total_late_h: 0.8, late_orders: 1, energy_kwh: 143.2 });
     expect(() => simulateSchedule(data, 'deadline_first', 'M-UNKNOWN')).toThrow('Unknown unavailable machine');
     const response = await fetch(base + '/api/scheduling/simulate', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -78,5 +79,44 @@ describe('synthetic knowledge and virtual scheduling', () => {
     expect(body.deadline_first.kpis).toEqual(disrupted.kpis);
     expect((await fetch(base + '/api/scheduling/simulate', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ unavailable_machine_id: 'M-UNKNOWN' }) })).status).toBe(400);
+  });
+
+  it('links an alarm to a feasible schedule and stores only a human-selected simulation', async () => {
+    const episode = loadOperationsDataset(repository).episodes.find((item) => item.case_id === 'IND-001')!;
+    const incident = telemetryEvidence(episode, loadOperationsDataset(repository).thresholds).incident;
+    const impact = simulateIncidentImpact(loadSchedulingDataset(), incident);
+    expect(impact).toMatchObject({ case_id: 'IND-001', line_id: 'LINE-03',
+      equipment_id: 'EQ-003', machine_id: 'M-FAST', recommended_strategy: 'deadline_first' });
+    expect(impact.incident.evidence_ids).toEqual(['TEL-IND-001-003', 'TEL-IND-001-004']);
+    expect(impact.disrupted.deadline_first.kpis.total_late_h).toBe(0.8);
+    expect(impact.disrupted.energy_first.kpis.total_late_h).toBe(15);
+    expect((await fetch(base + '/api/scheduling/incident-impact?case_id=IND-003')).status).toBe(400);
+    const response = await fetch(base + '/api/scheduling/incident-impact?case_id=IND-001');
+    expect(response.status).toBe(200);
+    expect((await response.json()).recommended_strategy).toBe('deadline_first');
+
+    const replay = await (await fetch(base + '/api/replay', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ case_id: 'IND-001' }) })).json();
+    const orderResponse = await fetch(base + '/api/work-orders', { method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ session_id: replay.id, assignee: 'equipment_technician' }) });
+    expect(orderResponse.status).toBe(201);
+    const order = await orderResponse.json();
+    const payload = { case_id: 'IND-001', work_order_id: order.id, strategy: 'deadline_first',
+      note: '优先保证装配批次交期，人工选择此方案。' };
+    const decisionResponse = await fetch(base + '/api/scheduling/decisions', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    expect(decisionResponse.status).toBe(201);
+    const decision = await decisionResponse.json();
+    expect(decision).toMatchObject({ ...payload, impact: { incident: {
+      telemetry_evidence_id: 'IND-001:telemetry:2026-09-22' },
+      disrupted: { deadline_first: { unavailable_machine_id: 'M-FAST' } } } });
+    const reader = new Repository(join(dir, 'demo.sqlite'), { readOnly: true });
+    expect(reader.listScheduleDecisions('IND-001')[0].id).toBe(decision.id);
+    reader.close();
+    const invalid = await fetch(base + '/api/scheduling/decisions', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...payload,
+        work_order_id: '00000000-0000-4000-8000-000000000000' }) });
+    expect(invalid.status).toBe(409);
   });
 });

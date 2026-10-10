@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
+import type { IncidentContext } from '../operations';
 
 const machineSchema = z.object({ id: z.string().min(1), name: z.string().min(1), energy_kw: z.number().positive() }).strict();
 const orderSchema = z.object({
@@ -9,6 +10,8 @@ const orderSchema = z.object({
 }).strict();
 const datasetSchema = z.object({
   version: z.string().min(1), data_type: z.literal('synthetic'), line_id: z.string().min(1),
+  incident_source: z.object({ case_id: z.string().min(1), equipment_id: z.string().min(1),
+    machine_id: z.string().min(1) }).strict(),
   machines: z.array(machineSchema).min(2), orders: z.array(orderSchema).min(1),
 }).strict();
 
@@ -20,11 +23,23 @@ export type ScheduleResult = {
     start_h: number; end_h: number; due_h: number; late_h: number; energy_kwh: number }>;
   kpis: { makespan_h: number; total_late_h: number; late_orders: number; energy_kwh: number };
 };
+export type IncidentScheduleImpact = {
+  data_type: 'synthetic'; case_id: string; line_id: string; equipment_id: string; machine_id: string;
+  incident: IncidentContext;
+  baseline: Record<SchedulingStrategy, ScheduleResult>;
+  disrupted: Record<SchedulingStrategy, ScheduleResult>;
+  recommended_strategy: SchedulingStrategy;
+};
+export type ScheduleDecision = {
+  id: string; case_id: string; work_order_id: string; created_at: string;
+  strategy: SchedulingStrategy; note: string; impact: IncidentScheduleImpact;
+};
 
 export function loadSchedulingDataset(path = join(process.cwd(), 'data', 'scheduling.json')): SchedulingDataset {
   const data = datasetSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
   const machineIds = new Set(data.machines.map((item) => item.id));
-  if (machineIds.size !== data.machines.length || new Set(data.orders.map((item) => item.id)).size !== data.orders.length ||
+  if (machineIds.size !== data.machines.length || !machineIds.has(data.incident_source.machine_id) ||
+    new Set(data.orders.map((item) => item.id)).size !== data.orders.length ||
     data.orders.some((order) => Object.keys(order.duration_h).length === 0 ||
       Object.keys(order.duration_h).some((id) => !machineIds.has(id)))) {
     throw new Error('Scheduling dataset has duplicate or incompatible IDs');
@@ -72,4 +87,24 @@ export function simulateSchedule(data: SchedulingDataset, strategy: SchedulingSt
       energy_kwh: round(assignments.reduce((sum, item) => sum + item.energy_kwh, 0)),
     },
   };
+}
+
+export function simulateIncidentImpact(data: SchedulingDataset, incident: IncidentContext): IncidentScheduleImpact {
+  if (incident.state !== 'ALARM') throw new Error('Only a confirmed alarm can disrupt this schedule');
+  const { case_id, equipment_id, machine_id } = data.incident_source;
+  const baseline = {
+    deadline_first: simulateSchedule(data, 'deadline_first'),
+    energy_first: simulateSchedule(data, 'energy_first'),
+  };
+  const disrupted = {
+    deadline_first: simulateSchedule(data, 'deadline_first', machine_id),
+    energy_first: simulateSchedule(data, 'energy_first', machine_id),
+  };
+  const deadline = disrupted.deadline_first.kpis;
+  const energy = disrupted.energy_first.kpis;
+  const recommended_strategy = deadline.total_late_h < energy.total_late_h ||
+    (deadline.total_late_h === energy.total_late_h && deadline.energy_kwh <= energy.energy_kwh)
+    ? 'deadline_first' : 'energy_first';
+  return { data_type: 'synthetic', case_id, line_id: data.line_id, equipment_id, machine_id,
+    incident, baseline, disrupted, recommended_strategy };
 }
