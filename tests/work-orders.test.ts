@@ -38,7 +38,7 @@ describe('human inspection work order lifecycle', () => {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
 
-  it('creates a persisted checklist from a validated replay and enforces completion order', async () => {
+  it('links an alarm, diagnosis and SOP to recorded inspection and separately confirmed resolution', async () => {
     expect((await post('/api/work-orders', { session_id: '00000000-0000-4000-8000-000000000000', assignee: 'equipment_technician' })).status).toBe(400);
     const replay = await (await post('/api/replay', { case_id: 'IND-001' })).json();
     const response = await post('/api/work-orders', { session_id: replay.id, assignee: 'equipment_technician' });
@@ -48,30 +48,75 @@ describe('human inspection work order lifecycle', () => {
       session_id: replay.id, case_id: 'IND-001', equipment_id: 'EQ-003',
       assignee: 'equipment_technician', risk_level: 'HIGH', status: 'open',
       evidence_ids: replay.diagnosis.evidence_ids,
+      incident: { state: 'ALARM', telemetry_evidence_id: 'IND-001:telemetry:2026-09-22',
+        evidence_ids: ['TEL-IND-001-003', 'TEL-IND-001-004'] },
+      sop: { id: 'SOP-COOL-01' }, resolution: null,
     });
     expect(order.checklist.map((item: { description: string }) => item.description))
       .toEqual(replay.diagnosis.recommended_checks);
     expect(order.checklist.every((item: { completed: boolean }) => !item.completed)).toBe(true);
     expect((await patch(`/api/work-orders/${order.id}/status`, { status: 'completed' })).status).toBe(409);
-    expect((await patch(`/api/work-orders/${order.id}/checklist/${order.checklist[0].id}`, { completed: true })).status).toBe(409);
+    expect((await patch(`/api/work-orders/${order.id}/checklist/${order.checklist[0].id}`,
+      { completed: true, finding: 'normal', note: '现场核查记录正常' })).status).toBe(409);
+    expect((await post(`/api/work-orders/${order.id}/recheck`, {})).status).toBe(409);
 
     const startedResponse = await patch(`/api/work-orders/${order.id}/status`, { status: 'in_progress' });
     expect(startedResponse.status).toBe(200);
     let updated = await startedResponse.json();
+    expect((await patch(`/api/work-orders/${order.id}/checklist/${order.checklist[0].id}`, { completed: true })).status).toBe(400);
     for (const check of updated.checklist) {
-      const result = await patch(`/api/work-orders/${order.id}/checklist/${check.id}`, { completed: true });
+      const result = await patch(`/api/work-orders/${order.id}/checklist/${check.id}`,
+        { completed: true, finding: 'normal', note: '现场核查记录正常' });
       expect(result.status).toBe(200);
       updated = await result.json();
     }
+    expect(updated.checklist.every((item: { checked_at: string; note: string }) =>
+      item.checked_at && item.note === '现场核查记录正常')).toBe(true);
     expect((await patch(`/api/work-orders/${order.id}/status`, { status: 'completed' })).status).toBe(200);
     expect((await patch(`/api/work-orders/${order.id}/status`, { status: 'in_progress' })).status).toBe(409);
+    const resolvePath = `/api/work-orders/${order.id}/resolve`;
+    expect((await post(resolvePath, { production_confirmed: true, quality_confirmed: true,
+      note: '人工确认产量和质量已复核' })).status).toBe(409);
+    const recheckResponse = await post(`/api/work-orders/${order.id}/recheck`, {});
+    expect(recheckResponse.status).toBe(200);
+    const rechecked = await recheckResponse.json();
+    expect(rechecked).toMatchObject({ status: 'completed', resolution: null,
+      recheck: { result: 'PASS', evidence_ids: ['TEL-IND-001-005', 'TEL-IND-001-006'] } });
+    expect((await post(resolvePath, { production_confirmed: true, quality_confirmed: false,
+      note: '人工确认产量和质量已复核' })).status).toBe(400);
+    const resolvedResponse = await post(resolvePath, { production_confirmed: true, quality_confirmed: true,
+      note: '人工确认产量和质量已复核' });
+    expect(resolvedResponse.status).toBe(200);
+    expect((await resolvedResponse.json()).resolution).toMatchObject({ production_confirmed: true,
+      quality_confirmed: true, note: '人工确认产量和质量已复核' });
+    expect((await post(`/api/work-orders/${order.id}/recheck`, {})).status).toBe(409);
 
     const list = await (await fetch(base + '/api/work-orders?case_id=IND-001')).json();
-    expect(list.items[0]).toMatchObject({ id: order.id, status: 'completed' });
+    expect(list.items[0]).toMatchObject({ id: order.id, status: 'completed', resolution: { production_confirmed: true } });
     expect((await fetch(base + '/api/work-orders?case_id=IND-999')).status).toBe(400);
 
-    repository.close();
-    repository = new Repository(dbPath);
-    expect(repository.getWorkOrder(order.id)).toMatchObject({ status: 'completed', checklist: updated.checklist });
+    const reopened = new Repository(dbPath, { readOnly: true });
+    try { expect(reopened.getWorkOrder(order.id)).toMatchObject({ status: 'completed',
+      checklist: updated.checklist, recheck: rechecked.recheck, resolution: { production_confirmed: true } }); }
+    finally { reopened.close(); }
+  });
+
+  it('retains failed recheck evidence and refuses to clear an unresolved alarm', async () => {
+    const replay = await (await post('/api/replay', { case_id: 'IND-003' })).json();
+    const order = await (await post('/api/work-orders', {
+      session_id: replay.id, assignee: 'process_engineer',
+    })).json();
+    expect(order.sop.id).toBe('SOP-COOL-01');
+    await patch(`/api/work-orders/${order.id}/status`, { status: 'in_progress' });
+    for (const check of order.checklist) await patch(`/api/work-orders/${order.id}/checklist/${check.id}`,
+      { completed: true, finding: 'normal', note: '现场核查记录正常' });
+    await patch(`/api/work-orders/${order.id}/status`, { status: 'completed' });
+    const response = await post(`/api/work-orders/${order.id}/recheck`, {});
+    expect(response.status).toBe(200);
+    expect((await response.json()).recheck).toMatchObject({ result: 'FAIL',
+      evidence_ids: ['TEL-IND-003-005', 'TEL-IND-003-006'] });
+    expect((await post(`/api/work-orders/${order.id}/resolve`, { production_confirmed: true,
+      quality_confirmed: true, note: '人工确认产量和质量已复核' })).status).toBe(409);
+    expect(repository.getWorkOrder(order.id)?.resolution).toBeNull();
   });
 });

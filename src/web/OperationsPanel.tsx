@@ -15,7 +15,7 @@ const stateLabel: Record<Assessment['state'], string> = {
 };
 const clock = (value: string) => value.slice(11, 16);
 
-export function OperationsPanel({ caseId }: { caseId: string }) {
+export function OperationsPanel({ caseId, onDiagnose }: { caseId: string; onDiagnose: (state: Assessment['state'], at: string) => void }) {
   const [view, setView] = useState<OperationsView | null>(null);
   const [step, setStep] = useState(0);
   const [verification, setVerification] = useState<Verification | null>(null);
@@ -76,13 +76,14 @@ export function OperationsPanel({ caseId }: { caseId: string }) {
         <small>原始测点证据：{assessment.evidence_ids.join(' · ')}。阈值用于本演示，未经现场校准。</small></div>
       {assessment.recommendation && <div className="operations-action"><div><span className="eyebrow">HUMAN ACTION / READ ONLY</span>
         <h3>{assessment.recommendation.title}</h3><p>建议责任角色：{assessment.recommendation.role} · 知识来源：{assessment.recommendation.sop_id}</p></div>
-        <button onClick={() => void verify(assessment.recommendation!.action_id)} disabled={!atEnd || busy}>
-          {busy ? '复测中…' : '模拟人工检查后复测'}</button></div>}
+        <div className="operations-actions"><button onClick={() => onDiagnose(assessment.state, point.at)} disabled={!atEnd}>基于事件诊断</button>
+          <button onClick={() => void verify(assessment.recommendation!.action_id)} disabled={!atEnd || busy}>
+            {busy ? '复测中…' : '预览虚拟复测'}</button></div></div>}
       {assessment.recommendation && !atEnd && <p className="fineprint">请切到最后一个采样点，再运行对应的虚拟复测分支。</p>}
       {verification && <div className={`operations-verification ${verification.result.toLowerCase()}`} role="status">
         <b>{verification.result === 'PASS' ? '测点复测通过' : '复测未通过'}</b><p>{verification.message}</p>
         <div>{verification.points.map((item, index) => <span key={item.at}>{clock(item.at)} · 温度 {item.temperature_c ?? '缺失'} °C · 振动 {item.vibration_mm_s} mm/s · 流量 {item.cooling_flow_l_min} L/min · {verification.checks[index].within_limits ? '测点在界内' : '测点未达标'}</span>)}</div>
-        <small>仅对预设测点做两次连续复测；不解除生产告警、不关闭工单，也不代表产量和质量恢复。</small></div>}
+        <small>这里只预览预设测点；生成并完成工单后，可在工单中保存复测证据。此结果不代表产量和质量恢复。</small></div>}
     </>}
   </section>;
 }

@@ -7,6 +7,7 @@ export const workOrderAssignees = [
 
 export type WorkOrderAssignee = (typeof workOrderAssignees)[number]['id'];
 export type WorkOrderStatus = 'open' | 'in_progress' | 'completed';
+export type InspectionFinding = 'normal' | 'abnormal' | 'uncertain';
 export type WorkOrder = {
   id: string;
   session_id: string;
@@ -19,5 +20,13 @@ export type WorkOrder = {
   status: WorkOrderStatus;
   diagnosis_summary: string;
   evidence_ids: string[];
-  checklist: Array<{ id: string; description: string; completed: boolean }>;
+  checklist: Array<{ id: string; description: string; completed: boolean;
+    finding?: InspectionFinding; note?: string; checked_at?: string }>;
+  incident?: import('../operations').IncidentContext | null;
+  sop?: { id: string; title: string; version: string } | null;
+  recheck?: { action_id: string; result: 'PASS' | 'FAIL'; checked_at: string;
+    evidence_ids: string[]; checks: Array<{ at: string; evidence_id: string;
+      data_complete: boolean; within_limits: boolean }>; message: string } | null;
+  resolution?: { confirmed_at: string; note: string; production_confirmed: true;
+    quality_confirmed: true } | null;
 };

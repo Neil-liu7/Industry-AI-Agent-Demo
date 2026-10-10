@@ -27,13 +27,17 @@ describe('repeatable online evaluation', () => {
           arguments: { case_id: data.case_id, line_id: data.line_id } }] : []),
         { type: 'toolCall', id: `${data.case_id}-equipment`, name: 'get_equipment_snapshot',
           arguments: { case_id: data.case_id, equipment_id: data.equipment_id } },
+        { type: 'toolCall', id: `${data.case_id}-telemetry`, name: 'get_recent_telemetry',
+          arguments: { case_id: data.case_id, equipment_id: data.equipment_id } },
         { type: 'toolCall', id: `${data.case_id}-maintenance`, name: 'get_maintenance_history',
           arguments: { case_id: data.case_id, equipment_id: data.equipment_id } },
       ];
       const diagnosis = {
         summary: '仅供人工核查的合成案例诊断。',
         risk_level: data.case_id === wrongRiskCase ? 'LOW' : calculateMetrics(data).risk_level,
-        evidence_ids: patrolSkill ? [ids.equipment, ids.maintenance] : [ids.line, ids.equipment, ids.maintenance],
+        evidence_ids: patrolSkill
+          ? [ids.equipment, `${data.case_id}:telemetry:${data.snapshot_date}`, ids.maintenance]
+          : [ids.line, ids.equipment, `${data.case_id}:telemetry:${data.snapshot_date}`, ids.maintenance],
         hypotheses: [], recommended_checks: ['人工复核设备和数据'], limitations: ['合成数据'],
       };
       return [fakeMessage(toolCalls, 'toolUse'),
@@ -93,9 +97,9 @@ describe('repeatable online evaluation', () => {
     for (const item of run.cases) {
       const session = repository.getSession(item.session_id)!;
       expect(session.mode).toBe('online');
-      expect(session.tool_calls).toBe(3);
+      expect(session.tool_calls).toBe(4);
       expect(session.trace.filter((trace) => trace.kind === 'tool').map((trace) => trace.source))
-        .toEqual(['local', 'local', 'mcp']);
+        .toEqual(['local', 'local', 'local', 'mcp']);
     }
     expect((await (await fetch(base + `/api/evaluations/${run.id}`)).json()).id).toBe(run.id);
   }, 15000);
@@ -108,11 +112,11 @@ describe('repeatable online evaluation', () => {
       const run = await response.json();
       expect(run.skill.id).toBe('equipment-priority-patrol');
       expect(run.passed_count).toBe(5);
-      expect(run.cases.every((item: { tool_calls: number }) => item.tool_calls === 2)).toBe(true);
+      expect(run.cases.every((item: { tool_calls: number }) => item.tool_calls === 3)).toBe(true);
       for (const item of run.cases) {
         const session = repository.getSession(item.session_id)!;
         expect(session.trace.filter((trace) => trace.kind === 'tool').map((trace) => trace.source))
-          .toEqual(['local', 'mcp']);
+          .toEqual(['local', 'local', 'mcp']);
       }
     } finally { patrolSkill = false; }
   });

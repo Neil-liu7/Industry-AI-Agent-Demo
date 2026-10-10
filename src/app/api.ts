@@ -13,13 +13,13 @@ import { randomUUID } from 'node:crypto';
 import { workOrderAssignees, type WorkOrder, type WorkOrderStatus } from '../domain/work-orders';
 import { loadKnowledgeLibrary, searchKnowledge } from '../knowledge';
 import { loadSchedulingDataset, simulateSchedule } from '../scheduling';
-import { assessOperations, loadOperationsDataset, verifyOperations } from '../operations';
+import { assessOperations, loadOperationsDataset, telemetryEvidence, verifyOperations } from '../operations';
 
 const diagnosisInput = z.object({
   case_id: z.string().min(1), question: z.string().trim().min(1).max(2000),
   skill_id: z.string().optional(),
 }).strict();
-const replayInput = z.object({ case_id: z.string().min(1) }).strict();
+const replayInput = z.object({ case_id: z.string().min(1), question: z.string().trim().min(1).max(2000).optional() }).strict();
 const evaluationInput = z.object({ skill_id: z.string().min(1) }).strict();
 const safetyInput = z.object({
   scenario_id: z.enum(['control-request', 'cross-case', 'forged-evidence', 'mcp-timeout']),
@@ -28,7 +28,14 @@ const workOrderInput = z.object({
   session_id: z.string().uuid(), assignee: z.enum(workOrderAssignees.map((item) => item.id)),
 }).strict();
 const workOrderStatusInput = z.object({ status: z.enum(['in_progress', 'completed']) }).strict();
-const checklistInput = z.object({ completed: z.boolean() }).strict();
+const checklistInput = z.object({
+  completed: z.boolean(), finding: z.enum(['normal', 'abnormal', 'uncertain']).optional(),
+  note: z.string().trim().min(3).max(500).optional(),
+}).strict();
+const resolutionInput = z.object({
+  production_confirmed: z.literal(true), quality_confirmed: z.literal(true),
+  note: z.string().trim().min(10).max(1000),
+}).strict();
 const schedulingInput = z.object({ unavailable_machine_id: z.string().nullable() }).strict();
 const verificationInput = z.object({ case_id: z.string(), action_id: z.string() }).strict();
 
@@ -102,6 +109,7 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     tools: [
       { name: 'get_line_snapshot', source: 'local' },
       { name: 'get_equipment_snapshot', source: 'local' },
+      { name: 'get_recent_telemetry', source: 'local' },
       { name: 'get_maintenance_history', source: 'mcp' },
     ],
     limits: { model_calls: 4, tool_calls: 6, tool_timeout_ms: 5000, task_timeout_ms: 30000 },
@@ -124,7 +132,7 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     const parsed = replayInput.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid replay request' });
     try {
-      const session = createReplay(repository, parsed.data.case_id);
+      const session = createReplay(repository, parsed.data.case_id, parsed.data.question);
       repository.saveSession(session);
       return res.json(session);
     } catch (error) {
@@ -179,6 +187,16 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     }
     const data = repository.getCase(session.case_id);
     if (!data) return res.status(400).json({ error: 'Case no longer exists' });
+    const episode = operationsDataset.episodes.find((item) => item.case_id === session.case_id)!;
+    const incident = session.incident?.telemetry_evidence_id === `${session.case_id}:telemetry:${data.snapshot_date}` &&
+      session.diagnosis.evidence_ids.includes(session.incident.telemetry_evidence_id)
+      ? session.incident : null;
+    const sopDocument = knowledgeLibrary.documents.find((item) => item.id === incident?.recommendation?.sop_id &&
+      item.case_ids.includes(session.case_id));
+    if (incident?.recommendation && !sopDocument) return res.status(409).json({ error: 'Incident SOP is unavailable' });
+    if (incident && (episode.line_id !== data.line_id || episode.equipment_id !== data.equipment_id)) {
+      return res.status(409).json({ error: 'Incident scope mismatch' });
+    }
     const now = new Date().toISOString();
     const order: WorkOrder = {
       id: randomUUID(), session_id: session.id, case_id: session.case_id, equipment_id: data.equipment_id,
@@ -186,6 +204,8 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
       status: 'open', diagnosis_summary: session.diagnosis.summary,
       evidence_ids: [...session.diagnosis.evidence_ids],
       checklist: session.diagnosis.recommended_checks.map((description) => ({ id: randomUUID(), description, completed: false })),
+      incident, sop: sopDocument ? { id: sopDocument.id, title: sopDocument.title, version: sopDocument.version } : null,
+      recheck: null, resolution: null,
     };
     repository.saveWorkOrder(order);
     return res.status(201).json(order);
@@ -196,7 +216,8 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
     const order = repository.getWorkOrder(req.params.id);
     if (!order) return res.status(404).json({ error: 'Work order not found' });
     if (order.status === 'completed' || parsed.data.status === 'in_progress' && order.status !== 'open' ||
-      parsed.data.status === 'completed' && (order.status !== 'in_progress' || order.checklist.some((item) => !item.completed))) {
+      parsed.data.status === 'completed' && (order.status !== 'in_progress' || order.checklist.some((item) =>
+        !item.completed || !item.finding || !item.note || !item.checked_at))) {
       return res.status(409).json({ error: 'Work order transition is not allowed' });
     }
     order.status = parsed.data.status as WorkOrderStatus;
@@ -207,13 +228,53 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
   app.patch('/api/work-orders/:id/checklist/:itemId', (req, res) => {
     const parsed = checklistInput.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid checklist update' });
+    if (parsed.data.completed && (!parsed.data.finding || !parsed.data.note)) {
+      return res.status(400).json({ error: 'Finding and inspection note are required' });
+    }
     const order = repository.getWorkOrder(req.params.id);
     if (!order) return res.status(404).json({ error: 'Work order not found' });
     const item = order.checklist.find((check) => check.id === req.params.itemId);
     if (!item) return res.status(404).json({ error: 'Checklist item not found' });
     if (order.status !== 'in_progress') return res.status(409).json({ error: 'Start the work order before updating checks' });
     item.completed = parsed.data.completed;
+    item.finding = parsed.data.completed ? parsed.data.finding : undefined;
+    item.note = parsed.data.completed ? parsed.data.note : undefined;
+    item.checked_at = parsed.data.completed ? new Date().toISOString() : undefined;
     order.updated_at = new Date().toISOString();
+    repository.updateWorkOrder(order);
+    return res.json(order);
+  });
+  app.post('/api/work-orders/:id/recheck', (req, res) => {
+    const order = repository.getWorkOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Work order not found' });
+    if (order.status !== 'completed' || !order.incident?.recommendation || order.resolution) {
+      return res.status(409).json({ error: 'Complete the incident inspection before recheck' });
+    }
+    const episode = operationsDataset.episodes.find((item) => item.case_id === order.case_id);
+    if (!episode || episode.equipment_id !== order.equipment_id ||
+      telemetryEvidence(episode, operationsDataset.thresholds).evidence_id !== order.incident.telemetry_evidence_id) {
+      return res.status(409).json({ error: 'Incident scope mismatch' });
+    }
+    try {
+      const result = verifyOperations(episode, operationsDataset.thresholds, order.incident.recommendation.action_id);
+      order.recheck = { action_id: result.action_id, result: result.result, checked_at: new Date().toISOString(),
+        evidence_ids: result.evidence_ids, checks: result.checks, message: result.message };
+      order.updated_at = order.recheck.checked_at;
+      repository.updateWorkOrder(order);
+      return res.json(order);
+    } catch { return res.status(409).json({ error: 'No verified scenario for this action' }); }
+  });
+  app.post('/api/work-orders/:id/resolve', (req, res) => {
+    const parsed = resolutionInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Confirm production and quality with a note' });
+    const order = repository.getWorkOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Work order not found' });
+    if (order.status !== 'completed' || order.recheck?.result !== 'PASS' || order.resolution ||
+      order.checklist.some((item) => item.finding !== 'normal')) {
+      return res.status(409).json({ error: 'Inspection and passing recheck are required before resolution' });
+    }
+    order.resolution = { ...parsed.data, confirmed_at: new Date().toISOString() };
+    order.updated_at = order.resolution.confirmed_at;
     repository.updateWorkOrder(order);
     return res.json(order);
   });

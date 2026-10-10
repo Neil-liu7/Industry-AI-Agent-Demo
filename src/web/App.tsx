@@ -3,10 +3,11 @@ import { calculateMetrics, RISK_THRESHOLDS, type IndustrialCase, type CaseMetric
 import type { EvaluationRun, EvaluationSuite } from '../evaluation';
 import type { RunResult, ToolTrace } from '../harness/run';
 import type { SafetyLabResult, SafetyScenario, SafetyScenarioId } from '../safety-lab';
-import { workOrderAssignees, type WorkOrder, type WorkOrderAssignee, type WorkOrderStatus } from '../domain/work-orders';
+import { workOrderAssignees, type WorkOrder, type WorkOrderAssignee, type InspectionFinding } from '../domain/work-orders';
 import { KnowledgePanel } from './KnowledgePanel';
 import { SchedulingPanel } from './SchedulingPanel';
 import { OperationsPanel } from './OperationsPanel';
+import { WorkOrderCard } from './WorkOrderCard';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic';
   risk_level: RiskLevel; line_id: string; equipment_id: string; metrics: CaseMetrics };
@@ -49,10 +50,9 @@ async function api<T>(path: string, body?: unknown, signal?: AbortSignal, method
 const riskLabel: Record<RiskLevel, string> = { HIGH: '高风险', MEDIUM: '中风险', LOW: '低风险', UNKNOWN: '未知' };
 const format = (value: number | null, suffix = '%') => value === null ? '未知' : `${value > 0 ? '+' : ''}${value.toFixed(1)}${suffix}`;
 const toolLabel: Record<string, string> = {
-  get_line_snapshot: '产线快照', get_equipment_snapshot: '设备快照', get_maintenance_history: '维修记录',
+  get_line_snapshot: '产线快照', get_equipment_snapshot: '设备快照',
+  get_recent_telemetry: '设备时序测点', get_maintenance_history: '维修记录',
 };
-const assigneeLabel = Object.fromEntries(workOrderAssignees.map((item) => [item.id, item.name])) as Record<WorkOrderAssignee, string>;
-const workOrderStatusLabel: Record<WorkOrderStatus, string> = { open: '待开始', in_progress: '处理中', completed: '已完成' };
 
 function MetricCard({ label, value, unit, change, alert }: { label: string; value: number | null; unit: string; change: number | null; alert?: boolean }) {
   return <article className={`metric-card ${alert ? 'metric-alert' : ''}`}>
@@ -181,7 +181,7 @@ export function App() {
     setBusy(true); setError('');
     try {
       const result = await api<RunResult>(mode === 'online' ? '/api/diagnose' : '/api/replay',
-        mode === 'online' ? { case_id: caseId, question, ...(skillId ? { skill_id: skillId } : {}) } : { case_id: caseId });
+        mode === 'online' ? { case_id: caseId, question, ...(skillId ? { skill_id: skillId } : {}) } : { case_id: caseId, question });
       if (selectedCase.current === requestedCase) {
         setSession(result); setFrame(0); setPlaying(mode === 'replay');
         setHistory((previous) => [result, ...previous.filter((item) => item.id !== result.id)].slice(0, 8));
@@ -241,18 +241,33 @@ export function App() {
     finally { setWorkOrderBusy(null); }
   }
 
-  async function updateWorkOrderCheck(order: WorkOrder, itemId: string, completed: boolean) {
-    const optimistic = { ...order, updated_at: new Date().toISOString(),
-      checklist: order.checklist.map((item) => item.id === itemId ? { ...item, completed } : item) };
-    setWorkOrders((previous) => previous.map((item) => item.id === order.id ? optimistic : item));
+  async function updateWorkOrderCheck(order: WorkOrder, itemId: string, completed: boolean,
+    finding?: InspectionFinding, note?: string) {
     setWorkOrderBusy(order.id); setError('');
     try {
-      const updated = await api<WorkOrder>(`/api/work-orders/${order.id}/checklist/${itemId}`, { completed }, undefined, 'PATCH');
+      const updated = await api<WorkOrder>(`/api/work-orders/${order.id}/checklist/${itemId}`,
+        { completed, ...(completed ? { finding, note } : {}) }, undefined, 'PATCH');
       setWorkOrders((previous) => previous.map((item) => item.id === updated.id ? updated : item));
-    } catch (failure) {
-      setWorkOrders((previous) => previous.map((item) => item.id === order.id ? order : item));
-      setError(failure instanceof Error ? failure.message : '更新检查项失败');
-    }
+    } catch (failure) { setError(failure instanceof Error ? failure.message : '更新检查项失败'); }
+    finally { setWorkOrderBusy(null); }
+  }
+
+  async function recheckWorkOrder(order: WorkOrder) {
+    setWorkOrderBusy(order.id); setError('');
+    try {
+      const updated = await api<WorkOrder>(`/api/work-orders/${order.id}/recheck`, {});
+      setWorkOrders((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+    } catch (failure) { setError(failure instanceof Error ? failure.message : '复测失败'); }
+    finally { setWorkOrderBusy(null); }
+  }
+
+  async function resolveWorkOrder(order: WorkOrder, note: string) {
+    setWorkOrderBusy(order.id); setError('');
+    try {
+      const updated = await api<WorkOrder>(`/api/work-orders/${order.id}/resolve`,
+        { production_confirmed: true, quality_confirmed: true, note });
+      setWorkOrders((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+    } catch (failure) { setError(failure instanceof Error ? failure.message : '解除确认失败'); }
     finally { setWorkOrderBusy(null); }
   }
 
@@ -324,7 +339,11 @@ export function App() {
           </div>}
           {snapshot && !scenarioValues && <div className="panel scenario-panel"><div className="panel-title"><span className="eyebrow">02A / WHAT IF</span><h2>假设推演</h2></div>
             <p className="fineprint">当前案例缺少关键读数，无法进行完整推演。请先人工复核数据。</p></div>}
-          <OperationsPanel caseId={caseId}/>
+          <OperationsPanel caseId={caseId} onDiagnose={(state, at) => {
+            setSkillId('line-anomaly-diagnosis');
+            setQuestion(`请分析 ${caseId} 设备 ${snapshot?.equipment_id ?? ''} 在 ${at} 的${state === 'DATA_GAP' ? '数据缺失' : '持续告警'}；读取时序测点，结合产线、设备和维修证据给出人工核查建议。`);
+            document.querySelector('.action-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }}/>
         </section>
         <section className="right-column">
           <div className="panel action-panel"><div className="panel-title"><span className="eyebrow">03 / AGENT TASK</span><h2>发起辅助诊断</h2></div>
@@ -373,6 +392,11 @@ export function App() {
         <p className="fineprint">“未知”表示关键值或比较条件不足，应补采数据；不将其解释为低风险。</p>
       </section>
       {showResult && session && <section className="panel result-panel"><div className="panel-title"><span className="eyebrow">05 / EVIDENCE & DECISION</span><h2>辅助诊断结果</h2></div>
+        {session.incident?.recommendation && <div className="work-order-incident">
+          <b>关联设备事件：{session.incident.state === 'DATA_GAP' ? '数据缺失' : '持续告警'} · {session.incident.observed_at}</b>
+          <span>原始测点：{session.incident.evidence_ids.join(' · ')} · 诊断时序证据：{session.incident.telemetry_evidence_id}</span>
+          <span>人工建议：{session.incident.recommendation.title} · SOP {session.incident.recommendation.sop_id}</span>
+        </div>}
         <div className="result-grid"><div><span className="eyebrow">结论</span><p className="summary">{session.diagnosis?.summary ?? '诊断未通过校验，请检查轨迹与停止原因。'}</p>
           <h3>待核查假设</h3><ul>{session.diagnosis?.hypotheses.map((item) => <li key={item}>{item}</li>)}</ul>
           <h3>建议的人工检查</h3><ul>{session.diagnosis?.recommended_checks.map((item) => <li key={item}>{item}</li>)}</ul>
@@ -401,25 +425,13 @@ export function App() {
         <label>切换案例 <select aria-label="巡检案例" value={caseId} onChange={(event) => setCaseId(event.target.value)} disabled={busy}>
           {cases.map((item) => <option key={item.case_id} value={item.case_id}>{item.case_id} · {item.title}</option>)}</select></label></div>
       <section className="panel work-orders-panel"><div className="panel-title"><span className="eyebrow">01 / HUMAN FOLLOW-UP</span><h2>人工巡检工单</h2></div>
-        <p className="fineprint">工单来自已完成的诊断建议，保留来源案例与证据 ID。完成每项检查后勾选记录，全部检查完成后才可关闭工单。</p>
-        {workOrders.length === 0 ? <p className="fineprint">当前案例暂无巡检工单。完成一次诊断后，可从诊断结果生成。</p> : <div className="work-order-list">{workOrders.map((order) => {
-          const allChecked = order.checklist.every((item) => item.completed);
-          return <article className="work-order-card" key={order.id}>
-            <header><div><b>{order.case_id} · {order.equipment_id}</b><small>工单 {order.id.slice(0, 8)} · 来源诊断 {order.session_id.slice(0, 8)}</small></div>
-              <span className={`risk risk-${order.risk_level.toLowerCase()}`}>{riskLabel[order.risk_level]}</span>
-              <span className={`work-order-status ${order.status}`}>{workOrderStatusLabel[order.status]}</span></header>
-            <p>{order.diagnosis_summary}</p><div className="work-order-meta"><span>责任角色：{assigneeLabel[order.assignee]}</span><span>更新时间：{new Date(order.updated_at).toLocaleString('zh-CN')}</span></div>
-            <ul className="work-order-checklist">{order.checklist.map((item) => <li key={item.id}>
-              <label><input type="checkbox" checked={item.completed} disabled={order.status !== 'in_progress' || workOrderBusy === order.id}
-                onChange={(event) => void updateWorkOrderCheck(order, item.id, event.target.checked)}/><span>{item.description}</span></label>
-            </li>)}</ul>
-            <div className="work-order-evidence">关联证据：{order.evidence_ids.join(' · ')}</div>
-            {order.status !== 'completed' && <div className="work-order-actions">
-              {order.status === 'open' ? <button onClick={() => void updateWorkOrderStatus(order, 'in_progress')} disabled={workOrderBusy === order.id}>开始巡检</button> : <button onClick={() => void updateWorkOrderStatus(order, 'completed')} disabled={!allChecked || workOrderBusy === order.id}>完成工单</button>}
-              {order.status === 'in_progress' && !allChecked && <small>完成全部检查项后可关闭工单。</small>}
-            </div>}
-          </article>;
-        })}</div>}
+        <p className="fineprint">由诊断证据生成；逐项记录人工观察，再保存预设测点复测。检查完成与异常解除分别确认。</p>
+        {workOrders.length === 0 ? <p className="fineprint">当前案例暂无巡检工单。完成一次诊断后，可从诊断结果生成。</p> : <div className="work-order-list">{workOrders.map((order) =>
+          <WorkOrderCard key={order.id} order={order} busy={workOrderBusy === order.id}
+            onStatus={(status) => void updateWorkOrderStatus(order, status)}
+            onCheck={(itemId, completed, finding, note) => void updateWorkOrderCheck(order, itemId, completed, finding, note)}
+            onRecheck={() => void recheckWorkOrder(order)} onResolve={(note) => void resolveWorkOrder(order, note)}/>)}
+        </div>}
       </section>
       <KnowledgePanel caseId={caseId} checks={session?.diagnosis?.recommended_checks ?? []}/>
       </div>

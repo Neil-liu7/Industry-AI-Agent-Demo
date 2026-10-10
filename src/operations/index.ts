@@ -29,6 +29,10 @@ export type Assessment = {
   recommendation: { action_id: NonNullable<OperationsEpisode['verification_action_id']>;
     title: string; role: string; sop_id: string } | null;
 };
+export type IncidentContext = {
+  state: Assessment['state']; observed_at: string; evidence_ids: string[];
+  telemetry_evidence_id: string; recommendation: Assessment['recommendation'];
+};
 
 const actions = {
   cooling_check: { title: '人工检查冷却回路与流量记录', role: '设备维修员', sop_id: 'SOP-COOL-01' },
@@ -78,6 +82,23 @@ function flags(point: TelemetryPoint, thresholds: OperationsDataset['thresholds'
 
 function evidenceId(caseId: string, index: number) { return `TEL-${caseId}-${String(index + 1).padStart(3, '0')}`; }
 
+export function telemetryEvidence(episode: OperationsEpisode, thresholds: OperationsDataset['thresholds']) {
+  const latest = assessOperations(episode, thresholds, episode.points.length - 1);
+  const evidence_id = `${episode.case_id}:telemetry:${episode.points.at(-1)!.at.slice(0, 10)}`;
+  const incident: IncidentContext = {
+    state: latest.state, observed_at: episode.points.at(-1)!.at,
+    evidence_ids: latest.evidence_ids, telemetry_evidence_id: evidence_id,
+    recommendation: latest.recommendation,
+  };
+  return {
+    evidence_id, case_id: episode.case_id, line_id: episode.line_id,
+    equipment_id: episode.equipment_id, data_type: 'synthetic' as const,
+    units: { temperature: '°C', vibration: 'mm/s', cooling_flow: 'L/min' },
+    thresholds, points: episode.points.map((point, index) => ({ ...point, evidence_id: evidenceId(episode.case_id, index) })),
+    incident,
+  };
+}
+
 export function assessOperations(episode: OperationsEpisode, thresholds: OperationsDataset['thresholds'],
   through: number): Assessment {
   if (!Number.isInteger(through) || through < 0 || through >= episode.points.length) throw new Error('Invalid telemetry index');
@@ -122,14 +143,15 @@ export function verifyOperations(episode: OperationsEpisode, thresholds: Operati
   const assessment = assessOperations(episode, thresholds, episode.points.length - 1);
   if (!assessment.recommendation || assessment.recommendation.action_id !== actionId ||
     episode.verification_action_id !== actionId) throw new Error('No verification fixture for this action');
-  const checks = episode.verification_points.map((point) => ({
-    at: point.at, data_complete: point.temperature_c !== null,
+  const checks = episode.verification_points.map((point, index) => ({
+    at: point.at, evidence_id: evidenceId(episode.case_id, episode.points.length + index),
+    data_complete: point.temperature_c !== null,
     within_limits: point.temperature_c !== null && !Object.values(flags(point, thresholds)).some(Boolean),
   }));
   const passed = checks.length === 2 && checks.every((item) => item.data_complete && item.within_limits);
   return {
     case_id: episode.case_id, action_id: actionId, data_type: 'synthetic' as const,
-    result: passed ? 'PASS' as const : 'FAIL' as const,
+    result: passed ? 'PASS' as const : 'FAIL' as const, evidence_ids: checks.map((item) => item.evidence_id),
     points: episode.verification_points, checks,
     message: passed ? '两次连续复测数据完整且未越阈；仍需人员确认设备与产量/质量状态。'
       : '复测仍有缺失或越阈；不能宣称异常解除，需升级人工调查。',

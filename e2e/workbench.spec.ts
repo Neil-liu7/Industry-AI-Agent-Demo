@@ -19,9 +19,9 @@ test('offline demo, playback controls, history and printable report', async ({ p
   await expect(page.locator('.trace-stats')).toContainText('实际工具调用 0');
   await page.getByRole('button', { name: '暂停' }).click();
   await page.getByRole('button', { name: '下一步' }).click();
-  await expect(page.getByText('2 / 7')).toBeVisible();
+  await expect(page.getByText('2 / 8')).toBeVisible();
   await page.getByRole('button', { name: '上一步' }).click();
-  await expect(page.getByText('1 / 7')).toBeVisible();
+  await expect(page.getByText('1 / 8')).toBeVisible();
   await page.getByRole('button', { name: '继续', exact: true }).click();
   await page.getByRole('button', { name: '暂停' }).click();
   for (let index = 0; index < 6; index++) await page.getByRole('button', { name: '下一步' }).click();
@@ -193,8 +193,10 @@ test('safety lab runs without a model key and keeps the result separate from dia
   expect(after.items.map((item: { id: string }) => item.id)).toEqual(before.items.map((item: { id: string }) => item.id));
 });
 
-test('a validated diagnosis can move through a persisted human inspection checklist', async ({ page }) => {
+test('an alarm leads through diagnosis, SOP, recorded inspection, recheck and human resolution', async ({ page }) => {
   await page.goto('/');
+  await page.locator('.operations-panel').getByRole('button', { name: '基于事件诊断' }).click();
+  await expect(page.getByRole('textbox', { name: '诊断问题' })).toHaveValue(/持续告警.*时序测点/);
   await page.getByRole('button', { name: /一键演示/ }).click();
   await page.getByRole('button', { name: '暂停' }).click();
   for (let index = 0; index < 6; index++) await page.getByRole('button', { name: '下一步' }).click();
@@ -205,15 +207,30 @@ test('a validated diagnosis can move through a persisted human inspection checkl
   const card = panel.locator('.work-order-card').first();
   await expect(card).toContainText('IND-001 · EQ-003');
   await expect(card).toContainText('质量工程师');
+  await expect(card).toContainText('SOP-COOL-01');
+  await expect(card).toContainText('TEL-IND-001-004');
   await card.getByRole('button', { name: '开始巡检' }).click();
-  const checks = card.locator('input[type="checkbox"]');
-  const count = await checks.count();
+  const count = await card.locator('.work-order-checklist li').count();
   expect(count).toBeGreaterThan(0);
-  await expect(checks.first()).toBeEnabled();
-  for (let index = 0; index < count; index++) await checks.nth(index).check();
-  await card.getByRole('button', { name: '完成工单' }).click();
-  await expect(card).toContainText('已完成');
-  await expect(card.locator('input[type="checkbox"]:checked')).toHaveCount(count);
+  await expect(card.getByRole('button', { name: '完成检查记录' })).toBeDisabled();
+  for (let index = 0; index < count; index++) {
+    await card.getByRole('combobox', { name: `检查结果 ${index + 1}` }).selectOption('normal');
+    await card.getByRole('textbox', { name: `检查记录 ${index + 1}` }).fill('现场核查记录正常');
+    await card.locator('.work-order-checklist li').nth(index).getByRole('button', { name: '记录检查' }).click();
+  }
+  await card.getByRole('button', { name: '完成检查记录' }).click();
+  await expect(card).toContainText('检查已完成 · 异常尚未确认解除');
+  await card.getByRole('button', { name: '保存虚拟复测证据' }).click();
+  await expect(card).toContainText('测点复测通过');
+  await expect(card).toContainText('TEL-IND-001-006');
+  await expect(card).toContainText('异常尚未确认解除');
+  await card.getByRole('checkbox', { name: '已人工复核产量状态' }).check();
+  await card.getByRole('checkbox', { name: '已人工复核质量状态' }).check();
+  await card.getByRole('textbox', { name: '异常解除确认记录' }).fill('人工确认产量和质量已复核');
+  await card.getByRole('button', { name: '人工确认异常解除（演示）' }).click();
+  await expect(card).toContainText('异常解除已由人工确认');
+  await page.reload();
+  await expect(page.locator('.work-order-card').first()).toContainText('异常解除已由人工确认');
 });
 
 test('knowledge sources and scheduling disruption are visible without a model key', async ({ page }) => {
@@ -292,9 +309,9 @@ test('industrial event timeline requires sustained alarm and shows virtual reche
   await expect(panel).toContainText('TEL-IND-001-003');
   await panel.locator('.operations-steps button').nth(1).click();
   await expect(panel.locator('.operations-state')).toHaveText('待确认');
-  await expect(panel.getByRole('button', { name: '模拟人工检查后复测' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '预览虚拟复测' })).toHaveCount(0);
   await panel.locator('.operations-steps button').last().click();
-  await panel.getByRole('button', { name: '模拟人工检查后复测' }).click();
+  await panel.getByRole('button', { name: '预览虚拟复测' }).click();
   await expect(panel.getByRole('status')).toContainText('测点复测通过');
   await expect(panel.getByRole('status')).toContainText('不代表产量和质量恢复');
 
@@ -304,6 +321,6 @@ test('industrial event timeline requires sustained alarm and shows virtual reche
   await expect(panel.getByRole('status')).toHaveCount(0);
   await page.locator('.case-list').getByRole('button', { name: /IND-003/ }).click();
   await expect(panel).toContainText('SOP-COOL-01');
-  await panel.getByRole('button', { name: '模拟人工检查后复测' }).click();
+  await panel.getByRole('button', { name: '预览虚拟复测' }).click();
   await expect(panel.getByRole('status')).toContainText('复测未通过');
 });

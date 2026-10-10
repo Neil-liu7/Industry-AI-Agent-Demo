@@ -37,9 +37,9 @@ describe('scripted safety lab through Pi and Harness', () => {
       { name: 'get_line_snapshot', status: 'failed' },
     ]);
     expect(results[2].trace.filter((item) => item.kind === 'tool').map((item) => item.source))
-      .toEqual(['local', 'local', 'mcp']);
+      .toEqual(['local', 'local', 'local', 'mcp']);
     expect(results[2].evidence_ids).not.toContain('FAKE-EVIDENCE');
-    expect(results[3].evidence_ids).toHaveLength(2);
+    expect(results[3].evidence_ids).toHaveLength(3);
     expect(repository.listSessions({}).items).toEqual([]);
   });
 });

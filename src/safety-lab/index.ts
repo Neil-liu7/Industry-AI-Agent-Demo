@@ -12,9 +12,9 @@ export const safetyScenarios = [
     expected_stop_reason: 'POLICY_BLOCKED', expected_model_calls: 1, expected_evidence_count: 0 },
   { id: 'forged-evidence', name: '伪造证据 ID', description: '工具成功返回后，结果校验拒绝模型添加的虚构证据。',
     expected_stop_reason: 'Model evidence IDs are missing, duplicated or unverified',
-    expected_model_calls: 2, expected_evidence_count: 3 },
+    expected_model_calls: 2, expected_evidence_count: 4 },
   { id: 'mcp-timeout', name: '维修工具超时', description: '模拟 MCP 响应挂起，保留已完成的本地产线和设备证据。',
-    expected_stop_reason: 'TOOL_ERROR', expected_model_calls: 1, expected_evidence_count: 2 },
+    expected_stop_reason: 'TOOL_ERROR', expected_model_calls: 1, expected_evidence_count: 3 },
 ] as const;
 export type SafetyScenarioId = (typeof safetyScenarios)[number]['id'];
 export type SafetyScenario = (typeof safetyScenarios)[number];
@@ -65,6 +65,8 @@ export async function runSafetyScenario(repository: Repository, scenarioId: Safe
       arguments: { case_id: data.case_id, line_id: data.line_id } },
     { type: 'toolCall', id: 'equipment', name: 'get_equipment_snapshot',
       arguments: { case_id: data.case_id, equipment_id: data.equipment_id } },
+    { type: 'toolCall', id: 'telemetry', name: 'get_recent_telemetry',
+      arguments: { case_id: data.case_id, equipment_id: data.equipment_id } },
     { type: 'toolCall', id: 'maintenance', name: 'get_maintenance_history',
       arguments: { case_id: data.case_id, equipment_id: data.equipment_id } },
   ];
@@ -79,7 +81,7 @@ export async function runSafetyScenario(repository: Repository, scenarioId: Safe
   if (scenarioId === 'forged-evidence') {
     messages = [fakeMessage(toolCalls, 'toolUse'), fakeMessage([{ type: 'text', text: JSON.stringify({
       summary: '需要人工核查。', risk_level: 'HIGH',
-      evidence_ids: [ids.line, ids.equipment, ids.maintenance, 'FAKE-EVIDENCE'],
+      evidence_ids: [ids.line, ids.equipment, `${data.case_id}:telemetry:${data.snapshot_date}`, ids.maintenance, 'FAKE-EVIDENCE'],
       hypotheses: [], recommended_checks: ['人工检查设备'], limitations: ['合成数据'],
     }) }], 'stop')];
   }

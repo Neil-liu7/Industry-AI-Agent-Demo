@@ -121,10 +121,12 @@ describe('diagnosis API, replay and durable history', () => {
     const calls: AssistantMessage['content'] = [
       { type: 'toolCall' as const, id: '1', name: 'get_line_snapshot', arguments: { case_id: 'IND-001', line_id: 'LINE-03' } },
       { type: 'toolCall' as const, id: '2', name: 'get_equipment_snapshot', arguments: { case_id: 'IND-001', equipment_id: 'EQ-003' } },
+      { type: 'toolCall' as const, id: 'telemetry', name: 'get_recent_telemetry', arguments: { case_id: 'IND-001', equipment_id: 'EQ-003' } },
       { type: 'toolCall' as const, id: '3', name: 'get_maintenance_history', arguments: { case_id: 'IND-001', equipment_id: 'EQ-003' } },
     ];
     const response = JSON.stringify({ summary: '需要人工核查设备升温。', risk_level: 'HIGH',
-      evidence_ids: ['IND-001:line:2026-09-22', 'IND-001:equipment:2026-09-22', 'IND-001:maintenance:MAINT-003'],
+      evidence_ids: ['IND-001:line:2026-09-22', 'IND-001:equipment:2026-09-22',
+        'IND-001:telemetry:2026-09-22', 'IND-001:maintenance:MAINT-003'],
       hypotheses: ['冷却状态待核查'], recommended_checks: ['人工检查冷却回路'], limitations: ['合成数据'] });
     const online = createApp(repository, () => ({ model: fakeModel, streamFn: scriptedStream([
       fakeMessage(calls, 'toolUse'), fakeMessage([{ type: 'text', text: response }], 'stop'),
@@ -143,7 +145,7 @@ describe('diagnosis API, replay and durable history', () => {
       expect(session.status).toBe('completed');
       expect(session.mode).toBe('online');
       expect(session.trace.filter((item: { kind: string }) => item.kind === 'tool')
-        .map((item: { source: string }) => item.source)).toEqual(['local', 'local', 'mcp']);
+        .map((item: { source: string }) => item.source)).toEqual(['local', 'local', 'local', 'mcp']);
       expect(repository.getSession(session.id)?.mode).toBe('online');
     } finally {
       await new Promise<void>((resolve) => onlineServer.close(() => resolve()));

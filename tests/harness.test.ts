@@ -13,11 +13,13 @@ const call = (id: string, name: string, args: Record<string, string>) =>
 const fullCalls = [
   call('1', 'get_line_snapshot', { case_id: 'IND-001', line_id: 'LINE-03' }),
   call('2', 'get_equipment_snapshot', { case_id: 'IND-001', equipment_id: 'EQ-003' }),
+  call('telemetry', 'get_recent_telemetry', { case_id: 'IND-001', equipment_id: 'EQ-003' }),
   call('3', 'get_maintenance_history', { case_id: 'IND-001', equipment_id: 'EQ-003' }),
 ];
 const ids = [
   'IND-001:line:2026-09-22',
   'IND-001:equipment:2026-09-22',
+  'IND-001:telemetry:2026-09-22',
   'IND-001:maintenance:MAINT-003',
 ];
 const report = (overrides: Record<string, unknown> = {}) => JSON.stringify({
@@ -50,19 +52,25 @@ describe('industrial Pi harness', () => {
     });
     expect(result.status).toBe('completed');
     expect(result.metrics.risk_level).toBe('HIGH');
-    expect(result.trace.filter((item) => item.kind === 'tool').map((item) => item.source)).toEqual(['local', 'local', 'mcp']);
+    expect(result.trace.filter((item) => item.kind === 'tool').map((item) => item.source)).toEqual(['local', 'local', 'local', 'mcp']);
     expect(result.evidence.map((item) => item.id)).toEqual(ids);
+    expect(result.evidence[2].data).toMatchObject({
+      case_id: 'IND-001', equipment_id: 'EQ-003',
+      units: { temperature: '°C', vibration: 'mm/s', cooling_flow: 'L/min' },
+      incident: { state: 'ALARM', evidence_ids: ['TEL-IND-001-003', 'TEL-IND-001-004'],
+        recommendation: { sop_id: 'SOP-COOL-01' } },
+    });
     expect(result.model_calls).toBe(2);
-    expect(result.tool_calls).toBe(3);
+    expect(result.tool_calls).toBe(4);
     expect(result.trace.every((item) => item.run_id === result.id &&
       item.skill_id === result.skill.id && item.skill_version === result.skill.version &&
       item.stop_reason === 'COMPLETED' && item.ended_at !== undefined &&
       item.duration_ms !== undefined)).toBe(true);
     expect(result.trace.filter((item) => item.kind === 'step').map((item) => item.name))
-      .toEqual(expect.arrayContaining(['读取产线快照', '读取设备快照', '读取维修记录',
+      .toEqual(expect.arrayContaining(['读取产线快照', '读取设备快照', '读取时序测点', '读取维修记录',
         '核对确定性风险与证据', '形成辅助诊断']));
     expect(result.trace.filter((item) => item.kind === 'tool').at(-1)?.budget)
-      .toEqual({ model_calls: 1, tool_calls: 3 });
+      .toEqual({ model_calls: 1, tool_calls: 4 });
   });
 
   it('runs the explicitly selected patrol skill with an omitted equipment ID', async () => {
@@ -74,6 +82,7 @@ describe('industrial Pi harness', () => {
       streamFn: scriptedStream([
         fakeMessage([
           call('1', 'get_equipment_snapshot', { case_id: 'IND-001' }),
+          call('telemetry', 'get_recent_telemetry', { case_id: 'IND-001', equipment_id: 'EQ-003' }),
           call('2', 'get_maintenance_history', { case_id: 'IND-001', equipment_id: 'EQ-003' }),
         ], 'toolUse'),
         fakeMessage([{ type: 'text', text: report({ evidence_ids: patrolIds }) }], 'stop'),
@@ -82,7 +91,7 @@ describe('industrial Pi harness', () => {
     expect(result.status).toBe('completed');
     expect(result.skill.id).toBe('equipment-priority-patrol');
     expect(result.evidence.map((item) => item.id)).toEqual(patrolIds);
-    expect(result.tool_calls).toBe(2);
+    expect(result.tool_calls).toBe(3);
     expect(result.trace.filter((item) => item.kind === 'step').map((item) => item.name))
       .toContain('提出人工巡检建议');
   });
@@ -91,10 +100,12 @@ describe('industrial Pi harness', () => {
     const calls = [
       call('1', 'get_line_snapshot', { case_id: 'IND-004', line_id: 'LINE-04' }),
       call('2', 'get_equipment_snapshot', { case_id: 'IND-004', equipment_id: 'EQ-004' }),
+      call('telemetry', 'get_recent_telemetry', { case_id: 'IND-004', equipment_id: 'EQ-004' }),
       call('3', 'get_maintenance_history', { case_id: 'IND-004', equipment_id: 'EQ-004' }),
     ];
     const answer = { summary: '温度读数缺失，需先人工复核数据。', risk_level: 'UNKNOWN',
-      evidence_ids: ['IND-004:line:2026-09-22', 'IND-004:equipment:2026-09-22', 'IND-004:maintenance:MAINT-004'],
+      evidence_ids: ['IND-004:line:2026-09-22', 'IND-004:equipment:2026-09-22',
+        'IND-004:telemetry:2026-09-22', 'IND-004:maintenance:MAINT-004'],
       hypotheses: [], recommended_checks: ['人工补采温度读数'], limitations: ['合成数据，无法完成风险分级'] };
     const run = (hypotheses: string[]) => runDiagnosis(repository,
       { case_id: 'IND-004', question: '请分析数据不足的案例' }, {
@@ -108,7 +119,7 @@ describe('industrial Pi harness', () => {
     const unsafe = await run(['轴承故障待核查']);
     expect(unsafe.status).toBe('failed');
     expect(unsafe.diagnosis).toBeNull();
-    expect(unsafe.evidence).toHaveLength(3);
+    expect(unsafe.evidence).toHaveLength(4);
   });
 
   it.each([
@@ -122,7 +133,7 @@ describe('industrial Pi harness', () => {
     });
     expect(result.status).toBe('failed');
     expect(result.diagnosis).toBeNull();
-    expect(result.trace.filter((item) => item.kind === 'tool')).toHaveLength(3);
+    expect(result.trace.filter((item) => item.kind === 'tool')).toHaveLength(4);
     expect(result.trace.some((item) => item.kind === 'step' &&
       item.name === '核对确定性风险与证据' && item.status === 'failed')).toBe(true);
   });
@@ -137,6 +148,25 @@ describe('industrial Pi harness', () => {
     expect(result.status).toBe('failed');
     expect(result.stop_reason).toBe('POLICY_BLOCKED');
     expect(result.evidence).toHaveLength(0);
+  });
+
+  it('rejects telemetry from another equipment and requires telemetry evidence in a completed diagnosis', async () => {
+    const wrongEquipment = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断设备告警' }, {
+      model: fakeModel, streamFn: scriptedStream([fakeMessage([
+        call('telemetry', 'get_recent_telemetry', { case_id: 'IND-001', equipment_id: 'EQ-002' }),
+      ], 'toolUse')]),
+    });
+    expect(wrongEquipment.stop_reason).toBe('POLICY_BLOCKED');
+    expect(wrongEquipment.evidence).toHaveLength(0);
+
+    const withoutTelemetry = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断设备告警' }, {
+      model: fakeModel, streamFn: scriptedStream([
+        fakeMessage(fullCalls.filter((item) => item.name !== 'get_recent_telemetry'), 'toolUse'),
+        fakeMessage([{ type: 'text', text: report({ evidence_ids: ids.filter((id) => !id.includes(':telemetry:')) }) }], 'stop'),
+      ]),
+    });
+    expect(withoutTelemetry.status).toBe('failed');
+    expect(withoutTelemetry.stop_reason).toBe('REQUIRED_TOOLS_MISSING');
   });
 
   it('stops on an unknown tool without inventing a successful call', async () => {
@@ -180,7 +210,7 @@ describe('industrial Pi harness', () => {
     }, { maintenanceClient: hanging, toolTimeoutMs: 20 });
     expect(result.status).toBe('failed');
     expect(result.stop_reason).toBe('TOOL_ERROR');
-    expect(result.evidence.map((item) => item.source)).toEqual(['local', 'local']);
+    expect(result.evidence.map((item) => item.source)).toEqual(['local', 'local', 'local']);
   });
 
   it('retries one recoverable MCP disconnect and records the retry', async () => {
@@ -214,7 +244,7 @@ describe('industrial Pi harness', () => {
       });
       expect(result.status).toBe('failed');
       expect(result.stop_reason).toBe('MCP_CLEANUP_ERROR');
-      expect(result.evidence).toHaveLength(3);
+      expect(result.evidence).toHaveLength(4);
       expect(result.trace.at(-1)?.stop_reason).toBe('MCP_CLEANUP_ERROR');
     } finally { spy.mockRestore(); }
   });

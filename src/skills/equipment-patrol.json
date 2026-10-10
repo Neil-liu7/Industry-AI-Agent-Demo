@@ -1,13 +1,13 @@
 {
   "id": "equipment-priority-patrol",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "name": "设备优先级巡检",
   "purpose": "根据设备读数和维修记录建议人工巡检顺序。",
   "when": "用户询问设备巡检、优先级或检查顺序",
   "inputs": ["case_id", "question"],
   "outputs": ["summary", "risk_level", "evidence_ids", "hypotheses", "recommended_checks", "limitations"],
-  "steps": ["读取设备快照", "读取维修记录", "核对确定性风险与证据", "提出人工巡检建议"],
-  "allowed_tools": ["get_equipment_snapshot", "get_maintenance_history"],
-  "required_tools": ["get_equipment_snapshot", "get_maintenance_history"],
+  "steps": ["读取设备快照", "读取时序测点", "读取维修记录", "核对确定性风险与证据", "提出人工巡检建议"],
+  "allowed_tools": ["get_equipment_snapshot", "get_recent_telemetry", "get_maintenance_history"],
+  "required_tools": ["get_equipment_snapshot", "get_recent_telemetry", "get_maintenance_history"],
   "failure_policy": "保留轨迹并安全终止，不补造证据"
 }

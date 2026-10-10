@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-const toolName = z.enum(['get_line_snapshot', 'get_equipment_snapshot', 'get_maintenance_history']);
+const toolName = z.enum(['get_line_snapshot', 'get_equipment_snapshot', 'get_recent_telemetry', 'get_maintenance_history']);
 const skillSchema = z.object({
   id: z.string().min(1), version: z.string().regex(/^\d+\.\d+\.\d+$/),
   name: z.string().min(1), purpose: z.string().min(1), when: z.string().min(1),

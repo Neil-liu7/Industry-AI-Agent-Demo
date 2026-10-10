@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { calculateMetrics, evidenceIds } from '../domain/cases';
 import { Repository } from '../storage/repository';
+import { loadOperationsDataset, telemetryEvidence } from '../operations';
 import { loadSkills, selectSkill } from '../skills';
 import { validateDiagnosis } from './diagnosis';
 import type { Evidence, RunResult, ToolTrace, Trace } from './run';
@@ -14,9 +15,13 @@ export function createReplay(repository: Repository, caseId: string, question = 
   const metrics = calculateMetrics(data);
   const recordings = JSON.parse(readFileSync(join(process.cwd(), 'data', 'replays.json'), 'utf8')) as Record<string, unknown>;
   const ids = evidenceIds(data);
+  const operations = loadOperationsDataset(repository);
+  const episode = operations.episodes.find((item) => item.case_id === caseId)!;
+  const telemetry = telemetryEvidence(episode, operations.thresholds);
   const sourceData = {
     get_line_snapshot: { id: ids.line, source: 'local' as const, data: { baseline: data.baseline, current: data.current } },
     get_equipment_snapshot: { id: ids.equipment, source: 'local' as const, data: { baseline: data.baseline, current: data.current } },
+    get_recent_telemetry: { id: telemetry.evidence_id, source: 'local' as const, data: telemetry },
     get_maintenance_history: { id: ids.maintenance, source: 'mcp' as const, data: { ...data.maintenance_record } },
   };
   const evidence: Evidence[] = skill.required_tools.map((tool) => ({
@@ -52,6 +57,7 @@ export function createReplay(repository: Repository, caseId: string, question = 
     id, case_id: caseId, mode: 'replay', status: 'completed', created_at: now,
     question, snapshot_date: data.snapshot_date, data_type: 'synthetic',
     skill: { id: skill.id, version: skill.version, name: skill.name }, metrics, diagnosis,
+    incident: telemetry.incident,
     evidence, trace, stop_reason: 'REPLAY_COMPLETED', model_calls: 0, tool_calls: 0, token_usage: null,
   };
 }
