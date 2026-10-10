@@ -26,3 +26,34 @@ describe('local OpenAI configuration', () => {
     }
   });
 });
+
+describe('local DeepSeek configuration', () => {
+  it('uses the official provider and resolves the legacy Flash model name', () => {
+    const before = { provider: process.env.MODEL_PROVIDER, name: process.env.MODEL_NAME,
+      key: process.env.DEEPSEEK_API_KEY };
+    try {
+      process.env.MODEL_PROVIDER = 'deepseek';
+      process.env.MODEL_NAME = 'deepseek-v4-flash';
+      delete process.env.DEEPSEEK_API_KEY;
+      expect(onlineEngineFromEnv()).toBeNull();
+      process.env.DEEPSEEK_API_KEY = 'test-key-never-sent';
+      const engine = onlineEngineFromEnv();
+      expect(engine?.model).toMatchObject({
+        id: 'deepseek-flash', provider: 'deepseek', api: 'openai-completions',
+        baseUrl: 'https://api.deepseek.com',
+      });
+      expect(engine?.getApiKey?.('deepseek')).toBe('test-key-never-sent');
+      process.env.MODEL_NAME = 'deepseek-flash';
+      expect(onlineEngineFromEnv()?.model.id).toBe('deepseek-flash');
+      process.env.MODEL_NAME = 'not-in-pinned-catalog';
+      expect(onlineEngineFromEnv()).toBeNull();
+    } finally {
+      if (before.provider === undefined) delete process.env.MODEL_PROVIDER;
+      else process.env.MODEL_PROVIDER = before.provider;
+      if (before.name === undefined) delete process.env.MODEL_NAME;
+      else process.env.MODEL_NAME = before.name;
+      if (before.key === undefined) delete process.env.DEEPSEEK_API_KEY;
+      else process.env.DEEPSEEK_API_KEY = before.key;
+    }
+  });
+});

@@ -12,6 +12,7 @@
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test",
     "smoke:openai": "node --import tsx src/agent/openai-smoke.ts",
+    "smoke:deepseek": "node --import tsx src/agent/deepseek-smoke.ts",
     "verify": "npm test && npm run typecheck && npm run build && npm run test:e2e",
     "typecheck": "tsc --noEmit",
     "build": "vite build && esbuild src/server.ts src/mcp/server.ts --bundle --platform=node --format=esm --packages=external --outdir=dist",
