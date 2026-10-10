@@ -18,6 +18,24 @@ type ScenarioValues = { daily_output_units: number; temperature_c: number; vibra
 type EvaluationOverview = { suite: EvaluationSuite; runs: EvaluationRun[] };
 type SafetyLabOverview = { execution: 'scripted_fake_model'; data_type: 'synthetic'; scenarios: SafetyScenario[] };
 type WorkOrderOverview = { items: WorkOrder[] };
+type WorkspaceArea = 'diagnosis' | 'followup' | 'scheduling' | 'assurance';
+
+const workspaceAreas: Array<{ id: WorkspaceArea; label: string; detail: string }> = [
+  { id: 'diagnosis', label: '诊断与监测', detail: '案例 · 测点 · Agent' },
+  { id: 'followup', label: '知识与巡检', detail: 'SOP · 人工工单' },
+  { id: 'scheduling', label: '生产排程', detail: '扰动 · 交期 · 能耗' },
+  { id: 'assurance', label: '评测与安全', detail: '验证 · 受控边界' },
+];
+const areaHeading: Record<WorkspaceArea, { title: string; description: string }> = {
+  diagnosis: { title: '产线异常辅助诊断', description: '观察设备与产线指标，追踪 Agent 工具调用，并核对诊断证据。' },
+  followup: { title: '知识与人工巡检', description: '查阅当前案例的 SOP，跟踪人员检查和工单状态。' },
+  scheduling: { title: '生产排程仿真', description: '比较设备扰动下的交期、延期和能耗。' },
+  assurance: { title: '评测与安全验证', description: '查看在线任务评测，运行固定的安全边界场景。' },
+};
+function areaFromHash(): WorkspaceArea {
+  const value = window.location.hash.slice(1);
+  return workspaceAreas.some((item) => item.id === value) ? value as WorkspaceArea : 'diagnosis';
+}
 
 async function api<T>(path: string, body?: unknown, signal?: AbortSignal, method: 'POST' | 'PATCH' = 'POST'): Promise<T> {
   const response = await fetch(path, body === undefined ? { signal } : {
@@ -68,6 +86,7 @@ function Trend({ snapshot }: { snapshot: Snapshot }) {
 }
 
 export function App() {
+  const [area, setArea] = useState<WorkspaceArea>(areaFromHash);
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [caseId, setCaseId] = useState('');
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -96,6 +115,23 @@ export function App() {
   const [workOrderBusy, setWorkOrderBusy] = useState<string | null>(null);
   const selectedCase = useRef(caseId);
   selectedCase.current = caseId;
+
+  function selectArea(next: WorkspaceArea) {
+    if (next !== 'diagnosis') setPlaying(false);
+    if (window.location.hash !== `#${next}`) window.location.hash = next;
+    setArea(next);
+    window.scrollTo(0, 0);
+  }
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const next = areaFromHash();
+      if (next !== 'diagnosis') setPlaying(false);
+      setArea(next); window.scrollTo(0, 0);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   useEffect(() => {
     void Promise.all([api<CaseSummary[]>('/api/cases'), api<Capabilities>('/api/agent/capabilities')])
@@ -188,7 +224,10 @@ export function App() {
     setCreatingWorkOrder(true); setError('');
     try {
       const order = await api<WorkOrder>('/api/work-orders', { session_id: session.id, assignee: workOrderAssignee });
-      if (selectedCase.current === order.case_id) setWorkOrders((previous) => [order, ...previous]);
+      if (selectedCase.current === order.case_id) {
+        setWorkOrders((previous) => [order, ...previous]);
+        selectArea('followup');
+      }
     } catch (failure) { setError(failure instanceof Error ? failure.message : '创建巡检工单失败'); }
     finally { setCreatingWorkOrder(false); }
   }
@@ -242,10 +281,14 @@ export function App() {
     <header className="topbar"><div className="brand"><span className="brand-mark">π</span><div><b>INDUSTRIAL / PI</b><small>智能体辅助诊断工作台</small></div></div>
       <div className="topbar-right"><span className="live-dot"/> 单机演示环境 <span className="top-divider"/> <strong>合成数据 · 非生产系统</strong></div></header>
     <main className="workspace">
-      <div className="page-heading"><div><span className="eyebrow green">OPERATIONS INTELLIGENCE / DEMO</span><h1>产线异常辅助诊断</h1>
-        <p>观察指标、追踪工具调用、核对证据，再由人员决定下一步检查。</p></div>
+      <div className="page-heading"><div><span className="eyebrow green">OPERATIONS INTELLIGENCE / DEMO</span><h1>{areaHeading[area].title}</h1>
+        <p>{areaHeading[area].description}</p></div>
         <div className="header-status"><span className="status-dot"/> {capabilities?.online_available ? '在线模型已配置' : '在线模型未配置'}<small>离线回放始终可用</small></div></div>
+      <nav className="workspace-nav" aria-label="功能分区">{workspaceAreas.map((item, index) => <button key={item.id} type="button"
+        className={area === item.id ? 'selected' : ''} aria-current={area === item.id ? 'page' : undefined} onClick={() => selectArea(item.id)}>
+        <span>{String(index + 1).padStart(2, '0')} / {item.label}</span><small>{item.detail}</small></button>)}</nav>
       {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError('')}>关闭</button></div>}
+      <div className="workspace-view" hidden={area !== 'diagnosis'}>
       <div className="columns">
         <section className="left-column">
           <div className="panel case-panel"><div className="panel-title"><span className="eyebrow">01 / CASE CONTEXT</span><h2>选择演示案例</h2></div>
@@ -351,6 +394,12 @@ export function App() {
           <span className={`mode-tag ${item.mode}`}>{item.mode === 'replay' ? '回放' : '在线'}</span><span className={`risk risk-${item.metrics.risk_level.toLowerCase()}`}>{riskLabel[item.metrics.risk_level]}</span><span>查看 →</span>
         </button>)}</div>}{cursor && <button className="more" onClick={() => void loadMore()}>加载更多历史</button>}
       </section>
+      </div>
+      <div className="workspace-view" hidden={area !== 'followup'}>
+      <div className="context-strip"><div><span className="eyebrow">CURRENT ASSET</span><b>{selected?.case_id ?? '加载中'} · {selected?.equipment_id ?? '—'}</b>
+        <small>{selected?.title ?? '正在加载案例'} · {selected?.line_id ?? '—'}</small></div>
+        <label>切换案例 <select aria-label="巡检案例" value={caseId} onChange={(event) => setCaseId(event.target.value)} disabled={busy}>
+          {cases.map((item) => <option key={item.case_id} value={item.case_id}>{item.case_id} · {item.title}</option>)}</select></label></div>
       <section className="panel work-orders-panel"><div className="panel-title"><span className="eyebrow">07 / HUMAN FOLLOW-UP</span><h2>人工巡检工单</h2></div>
         <p className="fineprint">工单来自已完成的诊断建议，保留来源案例与证据 ID。完成每项检查后勾选记录，全部检查完成后才可关闭工单。</p>
         {workOrders.length === 0 ? <p className="fineprint">当前案例暂无巡检工单。完成一次诊断后，可从诊断结果生成。</p> : <div className="work-order-list">{workOrders.map((order) => {
@@ -373,7 +422,11 @@ export function App() {
         })}</div>}
       </section>
       <KnowledgePanel caseId={caseId} checks={session?.diagnosis?.recommended_checks ?? []}/>
+      </div>
+      <div className="workspace-view" hidden={area !== 'scheduling'}>
       <SchedulingPanel/>
+      </div>
+      <div className="workspace-view" hidden={area !== 'assurance'}>
       <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">10 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>
         <p className="fineprint">固定题集 v{evaluations?.suite.version ?? '—'} · {evaluations?.suite.cases.length ?? 0} 个合成案例。逐案检查规则一致、必需工具、证据和数据不足时的弃判，并保存每次真实运行。离线回放不计入成绩；此分数不衡量故障根因准确率。</p>
         <div className="evaluation-controls"><label>评测 Skill <select aria-label="评测 Skill" value={evaluationSkillId} onChange={(event) => setEvaluationSkillId(event.target.value)} disabled={evaluationBusy}>
@@ -416,6 +469,7 @@ export function App() {
           </li>)}</ol><p>证据：{safetyResult.evidence_ids.join('、') || '无'}</p></details>
         </div>}
       </section>
+      </div>
       <footer>INDUSTRIAL / PI · 所有数值与维修记录均为合成样例 · 仅供人工辅助诊断</footer>
     </main>
   </div>;

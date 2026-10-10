@@ -5,8 +5,10 @@ test('offline demo, playback controls, history and printable report', async ({ p
   await expect(page.getByRole('heading', { name: '产线异常辅助诊断' })).toBeVisible();
   await expect(page.getByText('在线模型未配置')).toBeVisible();
   await expect(page.getByRole('button', { name: '在线 Pi Agent 诊断' })).toBeDisabled();
+  await page.getByRole('button', { name: /评测与安全/ }).click();
   await expect(page.getByRole('button', { name: '运行五案例在线评测' })).toBeDisabled();
   await expect(page.locator('.evaluation-panel')).toContainText('尚无在线评测记录');
+  await page.getByRole('button', { name: /诊断与监测/ }).click();
   await page.locator('.case-list').getByRole('button', { name: /IND-002/ }).click();
   await expect(page.locator('.case-list .case-item.selected')).toContainText('正常产线对照');
   await expect(page.getByText('快照 2026-09-22')).toBeVisible();
@@ -167,6 +169,7 @@ test('evaluation panel submits a fixed Skill run and displays returned scores', 
     } });
   });
   await page.goto('/');
+  await page.getByRole('button', { name: /评测与安全/ }).click();
   await page.getByRole('combobox', { name: '评测 Skill' }).selectOption('equipment-priority-patrol');
   await page.getByRole('button', { name: '运行五案例在线评测' }).click();
   await expect(page.getByRole('status')).toContainText('正在等待五个任务完成');
@@ -178,6 +181,7 @@ test('evaluation panel submits a fixed Skill run and displays returned scores', 
 test('safety lab runs without a model key and keeps the result separate from diagnosis history', async ({ page }) => {
   await page.goto('/');
   const before = await (await page.request.get('/api/sessions?case_id=IND-001')).json();
+  await page.getByRole('button', { name: /评测与安全/ }).click();
   const panel = page.locator('.safety-panel');
   await expect(panel.locator('.safety-scenarios article')).toHaveCount(4);
   await expect(page.getByRole('button', { name: '运行五案例在线评测' })).toBeDisabled();
@@ -214,14 +218,16 @@ test('a validated diagnosis can move through a persisted human inspection checkl
 
 test('knowledge sources and scheduling disruption are visible without a model key', async ({ page }) => {
   await page.goto('/');
+  await page.getByRole('button', { name: /知识与巡检/ }).click();
   const knowledge = page.locator('.knowledge-panel');
   await expect(knowledge).toContainText('SOP-COOL-01');
-  await page.locator('.case-list').getByRole('button', { name: /IND-004/ }).click();
+  await page.getByRole('combobox', { name: '巡检案例' }).selectOption('IND-004');
   await expect(knowledge).toContainText('SOP-DATA-04');
   await knowledge.getByRole('textbox', { name: '检索设备知识' }).fill('不存在资料');
   await knowledge.getByRole('button', { name: '检索', exact: true }).click();
   await expect(knowledge).toContainText('没有匹配的知识卡片');
 
+  await page.getByRole('button', { name: /生产排程/ }).click();
   const scheduling = page.locator('.scheduling-panel');
   await expect(scheduling.locator('.schedule-comparison article')).toHaveCount(2);
   await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('总延期 0 h');
@@ -230,6 +236,39 @@ test('knowledge sources and scheduling disruption are visible without a model ke
   await expect(scheduling).toContainText('高速加工单元停用');
   await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('总延期 14 h');
   await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('能耗 116 kWh');
+});
+
+test('workspace navigation keeps the active case and diagnosis session while showing one area at a time', async ({ page }) => {
+  await page.goto('/#followup');
+  await expect(page.getByRole('heading', { name: '知识与人工巡检' })).toBeVisible();
+  await expect(page.locator('.knowledge-panel')).toBeVisible();
+  await expect(page.locator('.case-list')).toBeHidden();
+  await page.getByRole('combobox', { name: '巡检案例' }).selectOption('IND-005');
+  await page.getByRole('textbox', { name: '检索设备知识' }).fill('维修');
+  await page.locator('.knowledge-panel').getByRole('button', { name: '检索', exact: true }).click();
+  await expect(page.locator('.knowledge-panel')).toContainText('SOP-MAINT-05');
+  await page.getByRole('button', { name: /诊断与监测/ }).click();
+  await expect(page.locator('.case-list .case-item.selected')).toContainText('IND-005');
+  await page.getByRole('button', { name: /一键演示/ }).click();
+  await expect(page.getByRole('button', { name: '暂停' })).toBeVisible();
+  await expect(page.locator('.trace-stats')).toContainText('实际模型调用 0');
+  await page.getByRole('button', { name: /生产排程/ }).click();
+  await expect(page.locator('.scheduling-panel')).toBeVisible();
+  await expect(page.locator('.trace-panel')).toBeHidden();
+  await page.getByRole('combobox', { name: '设备扰动' }).selectOption('M-FAST');
+  await page.getByRole('button', { name: '运行仿真' }).click();
+  await expect(page.locator('.scheduling-panel')).toContainText('高速加工单元停用');
+  await page.getByRole('button', { name: /评测与安全/ }).click();
+  await expect(page.locator('.safety-panel')).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('.scheduling-panel')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: '设备扰动' })).toHaveValue('M-FAST');
+  await page.getByRole('button', { name: /知识与巡检/ }).click();
+  await expect(page.getByRole('textbox', { name: '检索设备知识' })).toHaveValue('维修');
+  await expect(page.locator('.knowledge-panel')).toContainText('SOP-MAINT-05');
+  await page.getByRole('button', { name: /诊断与监测/ }).click();
+  await expect(page.locator('.case-list .case-item.selected')).toContainText('IND-005');
+  await expect(page.getByRole('button', { name: '继续', exact: true })).toBeVisible();
 });
 
 test('industrial event timeline requires sustained alarm and shows virtual recheck gates', async ({ page }) => {
