@@ -1,0 +1,73 @@
+{
+  "version": "1.0.0",
+  "data_type": "synthetic",
+  "thresholds": { "temperature_high_c": 84, "vibration_high_mm_s": 7.2, "cooling_flow_low_l_min": 24 },
+  "episodes": [
+    {
+      "case_id": "IND-001", "line_id": "LINE-03", "equipment_id": "EQ-003",
+      "points": [
+        { "at": "2026-09-22T08:00:00+08:00", "temperature_c": 71, "vibration_mm_s": 6.1, "cooling_flow_l_min": 34 },
+        { "at": "2026-09-22T08:05:00+08:00", "temperature_c": 84.5, "vibration_mm_s": 7.4, "cooling_flow_l_min": 23 },
+        { "at": "2026-09-22T08:10:00+08:00", "temperature_c": 87.5, "vibration_mm_s": 8.1, "cooling_flow_l_min": 21 },
+        { "at": "2026-09-22T08:15:00+08:00", "temperature_c": 87.5, "vibration_mm_s": 8.1, "cooling_flow_l_min": 20 }
+      ],
+      "verification_action_id": "cooling_check",
+      "verification_points": [
+        { "at": "2026-09-22T08:20:00+08:00", "temperature_c": 79, "vibration_mm_s": 6.9, "cooling_flow_l_min": 32 },
+        { "at": "2026-09-22T08:25:00+08:00", "temperature_c": 76, "vibration_mm_s": 6.7, "cooling_flow_l_min": 33 }
+      ]
+    },
+    {
+      "case_id": "IND-002", "line_id": "LINE-02", "equipment_id": "EQ-002",
+      "points": [
+        { "at": "2026-09-22T08:00:00+08:00", "temperature_c": 70, "vibration_mm_s": 6, "cooling_flow_l_min": 34 },
+        { "at": "2026-09-22T08:05:00+08:00", "temperature_c": 71, "vibration_mm_s": 6.1, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:10:00+08:00", "temperature_c": 71, "vibration_mm_s": 6.1, "cooling_flow_l_min": 34 },
+        { "at": "2026-09-22T08:15:00+08:00", "temperature_c": 71, "vibration_mm_s": 6.1, "cooling_flow_l_min": 34 }
+      ],
+      "verification_action_id": null, "verification_points": []
+    },
+    {
+      "case_id": "IND-003", "line_id": "LINE-01", "equipment_id": "EQ-001",
+      "points": [
+        { "at": "2026-09-22T08:00:00+08:00", "temperature_c": 72, "vibration_mm_s": 6, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:05:00+08:00", "temperature_c": 85, "vibration_mm_s": 6, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:10:00+08:00", "temperature_c": 86, "vibration_mm_s": 6, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:15:00+08:00", "temperature_c": 86, "vibration_mm_s": 6, "cooling_flow_l_min": 32 }
+      ],
+      "verification_action_id": "process_check",
+      "verification_points": [
+        { "at": "2026-09-22T08:20:00+08:00", "temperature_c": 85, "vibration_mm_s": 6.1, "cooling_flow_l_min": 32 },
+        { "at": "2026-09-22T08:25:00+08:00", "temperature_c": 85, "vibration_mm_s": 6, "cooling_flow_l_min": 32 }
+      ]
+    },
+    {
+      "case_id": "IND-004", "line_id": "LINE-04", "equipment_id": "EQ-004",
+      "points": [
+        { "at": "2026-09-22T08:00:00+08:00", "temperature_c": 71, "vibration_mm_s": 6, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:05:00+08:00", "temperature_c": 72, "vibration_mm_s": 6.1, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:10:00+08:00", "temperature_c": null, "vibration_mm_s": 6.2, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:15:00+08:00", "temperature_c": null, "vibration_mm_s": 6.3, "cooling_flow_l_min": 33 }
+      ],
+      "verification_action_id": "sensor_check",
+      "verification_points": [
+        { "at": "2026-09-22T08:20:00+08:00", "temperature_c": 72, "vibration_mm_s": 6.2, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:25:00+08:00", "temperature_c": 71, "vibration_mm_s": 6.1, "cooling_flow_l_min": 33 }
+      ]
+    },
+    {
+      "case_id": "IND-005", "line_id": "LINE-05", "equipment_id": "EQ-005",
+      "points": [
+        { "at": "2026-09-22T08:00:00+08:00", "temperature_c": 71, "vibration_mm_s": 6, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:05:00+08:00", "temperature_c": 72, "vibration_mm_s": 7.3, "cooling_flow_l_min": 33 },
+        { "at": "2026-09-22T08:10:00+08:00", "temperature_c": 72, "vibration_mm_s": 7.5, "cooling_flow_l_min": 32 },
+        { "at": "2026-09-22T08:15:00+08:00", "temperature_c": 72, "vibration_mm_s": 7.5, "cooling_flow_l_min": 32 }
+      ],
+      "verification_action_id": "bearing_check",
+      "verification_points": [
+        { "at": "2026-09-22T08:20:00+08:00", "temperature_c": 72, "vibration_mm_s": 6.8, "cooling_flow_l_min": 32 },
+        { "at": "2026-09-22T08:25:00+08:00", "temperature_c": 72, "vibration_mm_s": 6.7, "cooling_flow_l_min": 32 }
+      ]
+    }
+  ]
+}

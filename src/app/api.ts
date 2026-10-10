@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { workOrderAssignees, type WorkOrder, type WorkOrderStatus } from '../domain/work-orders';
 import { loadKnowledgeLibrary, searchKnowledge } from '../knowledge';
 import { loadSchedulingDataset, simulateSchedule } from '../scheduling';
+import { assessOperations, loadOperationsDataset, verifyOperations } from '../operations';
 
 const diagnosisInput = z.object({
   case_id: z.string().min(1), question: z.string().trim().min(1).max(2000),
@@ -29,12 +30,14 @@ const workOrderInput = z.object({
 const workOrderStatusInput = z.object({ status: z.enum(['in_progress', 'completed']) }).strict();
 const checklistInput = z.object({ completed: z.boolean() }).strict();
 const schedulingInput = z.object({ unavailable_machine_id: z.string().nullable() }).strict();
+const verificationInput = z.object({ case_id: z.string(), action_id: z.string() }).strict();
 
 export function createApp(repository: Repository, engineFactory: () => OnlineEngine | null = onlineEngineFromEnv) {
   const skills = loadSkills();
   const evaluationSuite = loadEvaluationSuite(repository);
   const knowledgeLibrary = loadKnowledgeLibrary(repository);
   const schedulingDataset = loadSchedulingDataset();
+  const operationsDataset = loadOperationsDataset(repository);
   let evaluationRunning = false;
   const app = express();
   app.disable('x-powered-by');
@@ -75,6 +78,23 @@ export function createApp(repository: Repository, engineFactory: () => OnlineEng
         deadline_first: simulateSchedule(schedulingDataset, 'deadline_first', unavailable),
         energy_first: simulateSchedule(schedulingDataset, 'energy_first', unavailable) });
     } catch { return res.status(400).json({ error: 'Unavailable machine is unknown or leaves an order unschedulable' }); }
+  });
+  app.get('/api/operations', (req, res) => {
+    const episode = operationsDataset.episodes.find((item) => item.case_id === req.query.case_id);
+    if (!episode) return res.status(400).json({ error: 'Unknown operations case' });
+    return res.json({ version: operationsDataset.version, data_type: 'synthetic',
+      thresholds: operationsDataset.thresholds, case_id: episode.case_id,
+      line_id: episode.line_id, equipment_id: episode.equipment_id,
+      points: episode.points, assessments: episode.points.map((_, index) =>
+        assessOperations(episode, operationsDataset.thresholds, index)) });
+  });
+  app.post('/api/operations/verify', (req, res) => {
+    const parsed = verificationInput.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid verification request' });
+    const episode = operationsDataset.episodes.find((item) => item.case_id === parsed.data.case_id);
+    if (!episode) return res.status(400).json({ error: 'Unknown operations case' });
+    try { return res.json(verifyOperations(episode, operationsDataset.thresholds, parsed.data.action_id)); }
+    catch { return res.status(409).json({ error: 'No verified scenario for this action' }); }
   });
   app.get('/api/agent/capabilities', (_req, res) => res.json({
     online_available: engineFactory() !== null, replay_available: true,

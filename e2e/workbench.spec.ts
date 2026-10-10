@@ -231,3 +231,27 @@ test('knowledge sources and scheduling disruption are visible without a model ke
   await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('总延期 14 h');
   await expect(scheduling.locator('.schedule-comparison article').first()).toContainText('能耗 116 kWh');
 });
+
+test('industrial event timeline requires sustained alarm and shows virtual recheck gates', async ({ page }) => {
+  await page.goto('/');
+  const panel = page.locator('.operations-panel');
+  await expect(panel).toContainText('IND-001 · LINE-03 · EQ-003');
+  await expect(panel.locator('.operations-state')).toHaveText('持续告警');
+  await expect(panel).toContainText('TEL-IND-001-003');
+  await panel.locator('.operations-steps button').nth(1).click();
+  await expect(panel.locator('.operations-state')).toHaveText('待确认');
+  await expect(panel.getByRole('button', { name: '模拟人工检查后复测' })).toHaveCount(0);
+  await panel.locator('.operations-steps button').last().click();
+  await panel.getByRole('button', { name: '模拟人工检查后复测' }).click();
+  await expect(panel.getByRole('status')).toContainText('测点复测通过');
+  await expect(panel.getByRole('status')).toContainText('不代表产量和质量恢复');
+
+  await page.locator('.case-list').getByRole('button', { name: /IND-004/ }).click();
+  await expect(panel.locator('.operations-state')).toHaveText('数据缺失');
+  await expect(panel).toContainText('温度测点缺失');
+  await expect(panel.getByRole('status')).toHaveCount(0);
+  await page.locator('.case-list').getByRole('button', { name: /IND-003/ }).click();
+  await expect(panel).toContainText('SOP-COOL-01');
+  await panel.getByRole('button', { name: '模拟人工检查后复测' }).click();
+  await expect(panel.getByRole('status')).toContainText('复测未通过');
+});

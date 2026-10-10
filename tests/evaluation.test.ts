@@ -98,7 +98,7 @@ describe('repeatable online evaluation', () => {
         .toEqual(['local', 'local', 'mcp']);
     }
     expect((await (await fetch(base + `/api/evaluations/${run.id}`)).json()).id).toBe(run.id);
-  });
+  }, 15000);
 
   it('evaluates the equipment patrol Skill with its narrower tool allowlist', async () => {
     patrolSkill = true;

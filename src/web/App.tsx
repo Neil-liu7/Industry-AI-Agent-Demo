@@ -6,6 +6,7 @@ import type { SafetyLabResult, SafetyScenario, SafetyScenarioId } from '../safet
 import { workOrderAssignees, type WorkOrder, type WorkOrderAssignee, type WorkOrderStatus } from '../domain/work-orders';
 import { KnowledgePanel } from './KnowledgePanel';
 import { SchedulingPanel } from './SchedulingPanel';
+import { OperationsPanel } from './OperationsPanel';
 
 type CaseSummary = { case_id: string; title: string; snapshot_date: string; data_type: 'synthetic';
   risk_level: RiskLevel; line_id: string; equipment_id: string; metrics: CaseMetrics };
@@ -280,6 +281,7 @@ export function App() {
           </div>}
           {snapshot && !scenarioValues && <div className="panel scenario-panel"><div className="panel-title"><span className="eyebrow">02A / WHAT IF</span><h2>假设推演</h2></div>
             <p className="fineprint">当前案例缺少关键读数，无法进行完整推演。请先人工复核数据。</p></div>}
+          <OperationsPanel caseId={caseId}/>
         </section>
         <section className="right-column">
           <div className="panel action-panel"><div className="panel-title"><span className="eyebrow">03 / AGENT TASK</span><h2>发起辅助诊断</h2></div>
