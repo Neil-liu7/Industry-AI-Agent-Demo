@@ -5,7 +5,7 @@ import type { OnlineEngine } from '../harness/run';
 
 export function onlineEngineFromEnv(): OnlineEngine | null {
   const provider = process.env.MODEL_PROVIDER ?? 'anthropic';
-  const name = process.env.MODEL_NAME ?? 'claude-sonnet-4-6';
+  const name = process.env.MODEL_NAME ?? (provider === 'openai' ? 'gpt-4.1-mini' : 'claude-sonnet-4-6');
   const key = provider === 'anthropic' ? process.env.ANTHROPIC_API_KEY :
     provider === 'openai' ? process.env.OPENAI_API_KEY : undefined;
   if (!key) return null;

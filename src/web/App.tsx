@@ -354,7 +354,7 @@ export function App() {
             <div className="buttons"><button className="primary" onClick={() => void run('replay')} disabled={busy || !caseId}>▶ 一键演示 · 离线回放</button>
               <button className="secondary" onClick={() => void run('online')} disabled={busy || !capabilities?.online_available || !question.trim()}>在线 Pi Agent 诊断</button></div>
             <p className="fineprint">{capabilities?.online_available ? '在线模式会等待真实模型与本地 MCP 工具返回。' : '在线模式需要在服务器本机配置模型 API Key；回放无需密钥或网络。'}</p>
-            <details className="config-help"><summary>如何配置模型 API</summary><p>在项目根目录复制 <code>.env.example</code> 为 <code>.env</code>，填写 <code>MODEL_PROVIDER</code>、<code>MODEL_NAME</code> 和对应的 <code>ANTHROPIC_API_KEY</code> 或 <code>OPENAI_API_KEY</code>，然后重启服务。密钥只放服务器本机，不在网页中输入。</p></details>
+            <details className="config-help"><summary>如何配置模型 API</summary><p>在项目根目录复制 <code>.env.example</code> 为 <code>.env</code>。OpenAI 默认模型为 <code>gpt-4.1-mini</code>；在本机填入 <code>OPENAI_API_KEY</code>，运行 <code>npm run smoke:openai</code> 检查真实工具调用，再重启服务。密钥不在网页中输入。</p></details>
           </div>
           <div className="panel trace-panel"><div className="panel-title"><span className="eyebrow">04 / HARNESS TRACE</span><h2>执行轨迹</h2></div>
             {!session ? <div className="empty-state"><span>◎</span><b>等待开始演示</b><p>选择案例后点击一键演示，查看 Skill、工具与证据如何衔接。</p></div> : <>

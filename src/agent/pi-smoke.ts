@@ -1,7 +1,7 @@
 import { Agent, type AgentTool, type StreamFn } from '@earendil-works/pi-agent-core';
 import { Type, type Model } from '@earendil-works/pi-ai';
 
-export async function runPiSmoke(model: Model<any>, streamFn: StreamFn) {
+export async function runPiSmoke(model: Model<any>, streamFn: StreamFn, getApiKey?: (provider: string) => string | undefined) {
   const events: string[] = [];
   const parameters = Type.Object({ key: Type.Literal('status') }, { additionalProperties: false });
   const tool: AgentTool<typeof parameters> = {
@@ -16,7 +16,7 @@ export async function runPiSmoke(model: Model<any>, streamFn: StreamFn) {
   };
   const agent = new Agent({
     initialState: { systemPrompt: 'Use read_fixed_value to answer status questions.', model, tools: [tool] },
-    streamFn,
+    streamFn, getApiKey,
   });
   agent.subscribe((event) => { events.push(event.type); });
   await agent.prompt('What is the status?');
