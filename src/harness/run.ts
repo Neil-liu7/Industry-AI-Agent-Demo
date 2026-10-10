@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Agent, type AgentEvent, type AgentTool, type StreamFn } from '@earendil-works/pi-agent-core';
 import { Type, type Model } from '@earendil-works/pi-ai';
+import { ZodError } from 'zod';
 import { calculateMetrics, evidenceIds, type CaseMetrics, type IndustrialCase } from '../domain/cases';
 import { MaintenanceClient } from '../mcp/client';
 import { loadOperationsDataset, telemetryEvidence, type IncidentContext } from '../operations';
@@ -241,6 +242,7 @@ export async function runDiagnosis(
           `If risk is UNKNOWN, do not propose fault hypotheses; request human data verification. ` +
           `Deterministic risk level: ${metrics.risk_level}. After tool calls, return only JSON with keys ` +
           `summary, risk_level, evidence_ids, hypotheses, recommended_checks, limitations. ` +
+          `evidence_ids, hypotheses, recommended_checks and limitations must each be an array of strings, even for one item. ` +
           `Include every required tool's evidence ID and state that human verification is needed.`,
         model: engine.model, tools,
       },
@@ -300,11 +302,23 @@ export async function runDiagnosis(
       step('核对确定性风险与证据', 'failed', '必需工具结果缺失');
       throw new Error('REQUIRED_TOOLS_MISSING');
     }
-    const final = [...agent.state.messages].reverse().find((message) => message.role === 'assistant');
-    const answer = final?.role === 'assistant' ? final.content.filter((part) => part.type === 'text').map((part) => part.text).join('') : '';
+    const finalAnswer = () => {
+      const final = [...agent.state.messages].reverse().find((message) => message.role === 'assistant');
+      return final?.role === 'assistant' ? final.content.filter((part) => part.type === 'text').map((part) => part.text).join('') : '';
+    };
     const requiredIds = skill.required_tools.map((name) => evidence.find((item) => item.tool === name)!.id);
     try {
-      result.diagnosis = validateDiagnosis(answer, metrics.risk_level, evidence.map((item) => item.id), requiredIds);
+      try {
+        result.diagnosis = validateDiagnosis(finalAnswer(), metrics.risk_level, evidence.map((item) => item.id), requiredIds);
+      } catch (error) {
+        if (!(error instanceof SyntaxError || error instanceof ZodError) || result.model_calls >= 4) throw error;
+        agent.state.tools = [];
+        await withinDeadline(agent.prompt('Your final answer has invalid JSON or field types. Return only one corrected JSON object with summary and risk_level as strings, and evidence_ids, hypotheses, recommended_checks and limitations as arrays of strings. Keep the same verified evidence IDs, risk level and conclusions. Do not call tools.'));
+        if (stopReason) throw new Error(stopReason);
+        if (agent.state.errorMessage) throw new Error('MODEL_ERROR');
+        result.diagnosis = validateDiagnosis(finalAnswer(), metrics.risk_level, evidence.map((item) => item.id), requiredIds);
+        step('结果格式修正', 'completed', '一次受限模型重试；风险和证据已重新校验');
+      }
     } catch (error) {
       step('核对确定性风险与证据', 'failed', '模型结果与证据或风险规则不一致');
       throw error;

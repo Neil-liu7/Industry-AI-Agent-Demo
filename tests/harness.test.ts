@@ -73,6 +73,37 @@ describe('industrial Pi harness', () => {
       .toEqual({ model_calls: 1, tool_calls: 4 });
   });
 
+  it('repairs one malformed model JSON response without repeating tool calls', async () => {
+    const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
+      model: fakeModel,
+      streamFn: scriptedStream([
+        fakeMessage(fullCalls, 'toolUse'),
+        fakeMessage([{ type: 'text', text: report({ limitations: '合成数据，仅供辅助诊断' }) }], 'stop'),
+        fakeMessage([{ type: 'text', text: report() }], 'stop'),
+      ]),
+    });
+    expect(result.status).toBe('completed');
+    expect(result.model_calls).toBe(3);
+    expect(result.tool_calls).toBe(4);
+    expect(result.evidence.map((item) => item.id)).toEqual(ids);
+    expect(result.trace.some((item) => item.kind === 'step' && item.name === '结果格式修正')).toBe(true);
+  });
+
+  it('rejects a forged evidence ID in the corrected model response', async () => {
+    const result = await runDiagnosis(repository, { case_id: 'IND-001', question: '诊断产线' }, {
+      model: fakeModel,
+      streamFn: scriptedStream([
+        fakeMessage(fullCalls, 'toolUse'),
+        fakeMessage([{ type: 'text', text: report({ limitations: '合成数据，仅供辅助诊断' }) }], 'stop'),
+        fakeMessage([{ type: 'text', text: report({ evidence_ids: [...ids, 'FAKE-999'] }) }], 'stop'),
+      ]),
+    });
+    expect(result.status).toBe('failed');
+    expect(result.diagnosis).toBeNull();
+    expect(result.model_calls).toBe(3);
+    expect(result.tool_calls).toBe(4);
+  });
+
   it('runs the explicitly selected patrol skill with an omitted equipment ID', async () => {
     const patrolIds = ids.slice(1);
     const result = await runDiagnosis(repository, {

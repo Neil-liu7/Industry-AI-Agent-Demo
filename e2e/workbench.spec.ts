@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 test('offline demo, playback controls, history and printable report', async ({ page, context }) => {
   await page.goto('/');
+  expect((await (await page.request.get('/api/agent/capabilities')).json()).online_available).toBe(false);
   await expect(page.getByRole('heading', { name: '产线异常辅助诊断' })).toBeVisible();
   await expect(page.getByText('在线模型未配置')).toBeVisible();
   await expect(page.getByRole('button', { name: '在线 Pi Agent 诊断' })).toBeDisabled();

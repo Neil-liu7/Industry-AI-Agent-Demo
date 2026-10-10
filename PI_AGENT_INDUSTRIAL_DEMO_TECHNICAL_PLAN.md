@@ -296,9 +296,9 @@ MCP Server 使用最小只读能力，不开放 SQL、Shell、任意文件读写
 
 ### 阶段 15：DeepSeek Flash 官方 API 接入
 
-在既有 Pi Agent Core 和 Harness 在线路径中注册依赖内置的 DeepSeek Provider，使用官方 `https://api.deepseek.com` 和 `DEEPSEEK_API_KEY`。模型使用当前目录与官方文档中的 `deepseek-flash`；兼容用户输入的旧名称 `deepseek-v4-flash`，解析后调用当前模型，不承诺锁定旧版本。提供 `npm run smoke:deepseek`，要求模型真实发起一次只读本地工具调用。密钥只放本机 `.env`，页面不接收密钥；无密钥时保留离线演示。
+在既有 Pi Agent Core 和 Harness 在线路径中注册依赖内置的 DeepSeek Provider，使用官方 `https://api.deepseek.com` 和 `DEEPSEEK_API_KEY`。模型使用当前目录与官方文档中的 `deepseek-flash`；兼容用户输入的旧名称 `deepseek-v4-flash`，解析后调用当前模型，不承诺锁定旧版本。提供 `npm run smoke:deepseek`，要求模型真实发起一次只读本地工具调用。密钥只放本机 `.env`，页面不接收密钥；无密钥时保留离线演示。真实模型若仅违反 JSON 格式或字段类型，可在剩余预算与时限内做一次不开放工具的格式修正；风险、证据和只读边界仍须严格校验，不得据此放宽。
 
-**验收：** 缺少密钥或模型名无效时在线引擎不可用；官方端点、协议与旧名称映射由测试确认；有用户密钥时真实 smoke 和一次在线案例诊断通过。不能以 fake model 测试冒充真实联通。
+**验收：** 缺少密钥或模型名无效时在线引擎不可用；官方端点、协议与旧名称映射由测试确认；格式修正后仍拒绝伪造证据；有用户密钥时真实 smoke 和一次在线案例诊断通过。不能以 fake model 测试冒充真实联通。
 
 ## 6. 数据契约与诊断输出
 
