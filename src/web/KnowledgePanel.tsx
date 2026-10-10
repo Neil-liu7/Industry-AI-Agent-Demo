@@ -41,7 +41,7 @@ export function KnowledgePanel({ caseId, checks }: { caseId: string; checks: str
     return () => request.current?.abort();
   }, [caseId]);
 
-  return <section className="panel knowledge-panel"><div className="panel-title"><span className="eyebrow">08 / ASSET KNOWLEDGE</span><h2>设备知识检索</h2></div>
+  return <section className="panel knowledge-panel"><div className="panel-title"><span className="eyebrow">02 / ASSET KNOWLEDGE</span><h2>设备知识检索</h2></div>
     <p className="fineprint">按案例从固定合成 SOP 卡片中查找人工核查步骤。每张卡片显示文档 ID、版本和日期；检索为确定性关键词匹配。</p>
     <form className="knowledge-search" onSubmit={(event) => { event.preventDefault(); void search(query); }}>
       <label htmlFor="knowledge-query">检索设备知识</label><input id="knowledge-query" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="例如：温度、振动、维修" maxLength={100}/>

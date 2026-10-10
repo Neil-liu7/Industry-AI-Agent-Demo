@@ -271,6 +271,19 @@ test('workspace navigation keeps the active case and diagnosis session while sho
   await expect(page.getByRole('button', { name: '继续', exact: true })).toBeVisible();
 });
 
+test('panel numbers restart within each workspace', async ({ page }) => {
+  await page.goto('/#diagnosis');
+  await expect(page.locator('.case-panel .panel-title .eyebrow')).toHaveText('01 / CASE CONTEXT');
+  await page.getByRole('button', { name: /知识与巡检/ }).click();
+  await expect(page.locator('.work-orders-panel .panel-title .eyebrow')).toHaveText('01 / HUMAN FOLLOW-UP');
+  await expect(page.locator('.knowledge-panel .panel-title .eyebrow')).toHaveText('02 / ASSET KNOWLEDGE');
+  await page.getByRole('button', { name: /生产排程/ }).click();
+  await expect(page.locator('.scheduling-panel .panel-title .eyebrow')).toHaveText('01 / VIRTUAL DECISION');
+  await page.getByRole('button', { name: /评测与安全/ }).click();
+  await expect(page.locator('.evaluation-panel .panel-title .eyebrow')).toHaveText('01 / REPEATABLE EVALUATION');
+  await expect(page.locator('.safety-panel .panel-title .eyebrow')).toHaveText('02 / SAFETY LAB');
+});
+
 test('industrial event timeline requires sustained alarm and shows virtual recheck gates', async ({ page }) => {
   await page.goto('/');
   const panel = page.locator('.operations-panel');

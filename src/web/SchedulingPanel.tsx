@@ -39,7 +39,7 @@ export function SchedulingPanel() {
   const horizon = simulation ? Math.max(simulation.deadline_first.kpis.makespan_h,
     simulation.energy_first.kpis.makespan_h, 1) : 1;
 
-  return <section className="panel scheduling-panel"><div className="panel-title"><span className="eyebrow">09 / VIRTUAL DECISION</span><h2>生产排程仿真</h2></div>
+  return <section className="panel scheduling-panel"><div className="panel-title"><span className="eyebrow">01 / VIRTUAL DECISION</span><h2>生产排程仿真</h2></div>
     <p className="fineprint">固定合成订单和设备能力。比较交期优先与能耗优先，并模拟一台设备停用；结果仅用于虚拟决策讨论，不下发生产指令。</p>
     {dataset && <div className="scheduling-inputs"><div><b>{dataset.line_id}</b><span>{dataset.orders.length} 个订单 · {dataset.machines.length} 台设备 · 时间从仿真起点计</span></div>
       <label>设备扰动 <select aria-label="设备扰动" value={unavailable} onChange={(event) => setUnavailable(event.target.value)} disabled={loading}>

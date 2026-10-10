@@ -400,7 +400,7 @@ export function App() {
         <small>{selected?.title ?? '正在加载案例'} · {selected?.line_id ?? '—'}</small></div>
         <label>切换案例 <select aria-label="巡检案例" value={caseId} onChange={(event) => setCaseId(event.target.value)} disabled={busy}>
           {cases.map((item) => <option key={item.case_id} value={item.case_id}>{item.case_id} · {item.title}</option>)}</select></label></div>
-      <section className="panel work-orders-panel"><div className="panel-title"><span className="eyebrow">07 / HUMAN FOLLOW-UP</span><h2>人工巡检工单</h2></div>
+      <section className="panel work-orders-panel"><div className="panel-title"><span className="eyebrow">01 / HUMAN FOLLOW-UP</span><h2>人工巡检工单</h2></div>
         <p className="fineprint">工单来自已完成的诊断建议，保留来源案例与证据 ID。完成每项检查后勾选记录，全部检查完成后才可关闭工单。</p>
         {workOrders.length === 0 ? <p className="fineprint">当前案例暂无巡检工单。完成一次诊断后，可从诊断结果生成。</p> : <div className="work-order-list">{workOrders.map((order) => {
           const allChecked = order.checklist.every((item) => item.completed);
@@ -427,7 +427,7 @@ export function App() {
       <SchedulingPanel/>
       </div>
       <div className="workspace-view" hidden={area !== 'assurance'}>
-      <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">10 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>
+      <section className="panel evaluation-panel"><div className="panel-title"><span className="eyebrow">01 / REPEATABLE EVALUATION</span><h2>在线评测中心</h2></div>
         <p className="fineprint">固定题集 v{evaluations?.suite.version ?? '—'} · {evaluations?.suite.cases.length ?? 0} 个合成案例。逐案检查规则一致、必需工具、证据和数据不足时的弃判，并保存每次真实运行。离线回放不计入成绩；此分数不衡量故障根因准确率。</p>
         <div className="evaluation-controls"><label>评测 Skill <select aria-label="评测 Skill" value={evaluationSkillId} onChange={(event) => setEvaluationSkillId(event.target.value)} disabled={evaluationBusy}>
           {capabilities?.skills.map((item) => <option key={item.id} value={item.id}>{item.name} · v{item.version}</option>)}
@@ -452,7 +452,7 @@ export function App() {
           </article>)}</div>
         </>}
       </section>
-      <section className="panel safety-panel"><div className="panel-title"><span className="eyebrow">11 / SAFETY LAB</span><h2>安全实验台</h2></div>
+      <section className="panel safety-panel"><div className="panel-title"><span className="eyebrow">02 / SAFETY LAB</span><h2>安全实验台</h2></div>
         <p className="fineprint">四个固定合成场景使用脚本化假模型触发真实 Harness 边界，无需模型 API Key。结果不写入诊断历史，也不计入在线评测；其中维修工具超时使用模拟挂起的 MCP 客户端。</p>
         <div className="safety-scenarios">{safetyLab?.scenarios.map((item) => <article key={item.id}>
           <div><b>{item.name}</b><p>{item.description}</p></div>
