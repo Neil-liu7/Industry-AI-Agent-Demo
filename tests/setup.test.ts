@@ -17,6 +17,8 @@ describe('project bootstrap', () => {
     expect(readme).toContain('## 部署方式');
     expect(readme).toContain('NODE_ENV=production npm start');
     expect(readme).toContain('npm run verify');
+    expect(readme).toContain('## 复现与解读流程');
+    expect(readme).not.toMatch(/老师|汇报|答辩/);
     expect(readFileSync('.env.example', 'utf8')).toContain('ANTHROPIC_API_KEY=\n');
     expect(isIgnored('.env')).toBe(true);
     expect(isIgnored('.env.local')).toBe(true);
